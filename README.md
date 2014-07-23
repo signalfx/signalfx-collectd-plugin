@@ -37,3 +37,6 @@ $ cp /opt/collectd-signalfx/collectd-signalfx.conf /etc
    /var/log/collectd_signalfx.log
    ```
 
+Build status
+------------
+[![Build Status](https://travis-ci.org/signalfx/collectd-signalfx.svg?branch=master)](https://travis-ci.org/signalfx/collectd-signalfx)
