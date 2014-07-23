@@ -3,7 +3,11 @@
 import logging
 import os
 import sys
-import httplib
+try:
+    import httplib
+except ImportError:
+    import http.client
+    httplib = http.client
 import json
 import urlparse
 
