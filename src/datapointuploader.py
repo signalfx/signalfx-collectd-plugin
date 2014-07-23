@@ -3,13 +3,15 @@
 import logging
 import os
 import sys
+import json
 try:
     import httplib
+    import urlparse
 except ImportError:
     import http.client
+    import urllib.parse
     httplib = http.client
-import json
-import urlparse
+    urlparse = urllib.parse
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
