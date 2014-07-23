@@ -162,4 +162,4 @@ if __name__ == '__main__':
     w = DatapointUploader(args.auth_token, args.url)
     dps = [DataPoint(args.source, args.metric, args.value, args.type)]
     assert(w.registerMultipleSeries(dps))
-    print "Result of add datapoints: " + str(w.addDatapoints(dps))
+    print ("Result of add datapoints: " + str(w.addDatapoints(dps)))
