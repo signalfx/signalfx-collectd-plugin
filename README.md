@@ -10,6 +10,11 @@ Installation of collectd via apt-get
 $ sudo apt-get install collectd
     ```
 
+Supported python versions
+-------------------------
+
+The plugin currently only supports python 2.7+ and does
+not support 3.0
 
 Configuration
 -------------
