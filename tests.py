@@ -22,8 +22,8 @@ import unittest
 class DatapointUploaderTestCase(unittest.TestCase):
     def test_datapoint_uploader(self):
         d = datapointuploader.DatapointUploader('', 'https://api.signalfuse.com')
-	d.connect()
-	assert d.connected()
-	dps = [DataPoint('source', 'metric', 3, 'GAUGE')]
-	res = d.addDatapoints(dps)
-	assert res is False
+        d.connect()
+        assert d.connected()
+        dps = [DataPoint('source', 'metric', 3, 'GAUGE')]
+        res = d.addDatapoints(dps)
+        assert res is False
