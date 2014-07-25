@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 VERSION = "0.0.2"
 PLUGIN_NAME = 'collectd-signalfx'
-WHITELISTED_VALUES = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+WHITELISTED_VALUES = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-:")
 
 
 def whitelist_field(field):
