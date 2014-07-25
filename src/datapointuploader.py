@@ -133,13 +133,13 @@ class DatapointUploader():
                                    "X-SF-TOKEN": self.auth_token,
                                    "User-Agent": self.userAgent()})
                 resp = self.conn.getresponse()
+                if resp.status != 200:
+                    logging.warning("Unexpected status of %d", resp.status)
+                    self.disconnect()
+                    return False
                 result = resp.read().strip()
                 if json.loads(result) != "OK":
                     logging.warning("Unexpected body data of %s", result)
-                    self.disconnect()
-                    return False
-                if resp.status != 200:
-                    logging.warning("Unexpected status of %d", resp.status)
                     self.disconnect()
                     return False
                 return True

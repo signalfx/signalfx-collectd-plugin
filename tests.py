@@ -16,8 +16,14 @@ import sys
 sys.modules["collectd"] = collectd
 
 import datapointuploader, collectdtosf
+from datapointuploader import DataPoint
 import unittest
 
 class DatapointUploaderTestCase(unittest.TestCase):
-    def test_create(self):
-        d = datapointuploader.DatapointUploader('', 'http://test.com')
+    def test_datapoint_uploader(self):
+        d = datapointuploader.DatapointUploader('', 'https://api.signalfuse.com')
+	d.connect()
+	assert d.connected()
+	dps = [DataPoint('source', 'metric', 3, 'GAUGE')]
+	res = d.addDatapoints(dps)
+	assert res is False
