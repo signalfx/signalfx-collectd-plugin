@@ -54,7 +54,7 @@ def main():
                 printed_org = True
         else:
             all_auth_tokens.append((i['sf_organization'], i['sf_apiAccessToken']))
-            print "%40s%40s" % (i['sf_organization'], i['sf_apiAccessToken'])
+            print ("%40s%40s" % (i['sf_organization'], i['sf_apiAccessToken']))
     if args.org is not None and not printed_org:
         sys.stderr.write("Unable to find the org you set.\n")
         sys.exit(1)
