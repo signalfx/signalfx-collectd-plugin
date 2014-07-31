@@ -83,7 +83,7 @@ def decode_string(str):
 
 def replace_in_file(file_name, regex_to_change, new_subpart):
     p = re.compile(regex_to_change)
-    with open(file_name) as f:
+    with open(file_name, 'rb') as f:
         old_file_contents = decode_string(f.read())
 
     (new_file_contents, num_replacements) = p.subn(new_subpart, old_file_contents)
@@ -91,7 +91,7 @@ def replace_in_file(file_name, regex_to_change, new_subpart):
         raise Exception("Invalid file format.  Please do auth token replacement manually")
 
     encoded_new_contents = new_file_contents.encode("UTF-8")
-    with open(file_name, 'w') as f:
+    with open(file_name, 'wb') as f:
         f.write(encoded_new_contents)
 
 
