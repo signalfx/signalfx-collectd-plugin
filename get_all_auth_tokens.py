@@ -75,10 +75,16 @@ def main():
     replace_in_file(args.update, 'APIToken "(.*)"', 'APIToken "%s"' % all_auth_tokens[0][1])
 
 
+def decode_string(str):
+    try:
+        return str.decode("UTF-8")
+    except AttributeError:
+        return str
+
 def replace_in_file(file_name, regex_to_change, new_subpart):
     p = re.compile(regex_to_change)
     with open(file_name) as f:
-        old_file_contents = f.read().decode("UTF-8")
+        old_file_contents = decode_string(f.read())
 
     (new_file_contents, num_replacements) = p.subn(new_subpart, old_file_contents)
     if num_replacements != 1:
