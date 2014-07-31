@@ -2,7 +2,12 @@ import getpass
 import json
 import os
 import re
-import urllib2
+try:
+    import urllib2
+except ImportError:
+    import urllib.request
+    # This usage is generally correct for this script
+    urllib2 = urllib.request
 import argparse
 import sys
 
