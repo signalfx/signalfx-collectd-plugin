@@ -137,23 +137,44 @@ def signalfx_plugin_init(data):
 class SignalFxPlugin(object):
     def __init__(self):
         self.config_setup = {
+            # Which types_db file to read datatypes from, so we know if it's a counter or gauge
             'types_db': ('/usr/share/collectd/types.db', str),
+            # Which prefix to put on metrics you send
             'metric_prefix': ('collectd', str),
+            # Which value separates parts of a metric name
             'metric_separator': ('.', str),
+            # The URL to send metrics to
             'url': ('https://api.signalfuse.com', str),
+            # The API token to use when reporting metrics
             'api_token': ('', str),
+            # The source to use when reporting the metric, if you don't want to use collectd's
             'source': ('', str),
+            # If true, will also add some debug information to the file "/tmp/flush_times"
             'debug': (False, str2bool),
+            # If true, will convert to lowercase all metric names
             'lower_case': (False, str2bool),
+            # A , separated list of metrics.  Only these metrics will be sent to signalfx,
+            # default all
             'include_regex': ('', get_precompiled_regular_expressions),
+            # Config file to get logging information
             'log_config': ('', str),
-            'flush_max_measurements': (600, int),
+            # Internal buffer size of metrics to send backload
             'max_queue_size': (20000, int),
+            # Timeout for HTTP requests to us
             'timeout': (60, int),
+            # How many items at once to send to us
             'queue_flush_size': (5000, int),
+            # If true, will self report stats about the module
             'self_monitor': (True, str2bool),
+            # How many threads to run at once trying to flush from the metric queue
             'flushing_threads': (2, int),
+            # If true, send all values with timestamp 0 (use our time for metrics,
+            # not the time the metric had)
             'ignore_localtime': (True, str2bool),
+            # If true, the data_name part of the metric will not be appended to the metric name
+            # if we can uniquely identify the metric without it.  Usually, you don't need this since
+            # it's mostly redundant information
+            'ignore_data_name': (True, str2bool),
         }
         self.config = {}
         self.data_queue = None
@@ -219,7 +240,7 @@ class SignalFxPlugin(object):
                 continue
 
             metric_parts = list(name_parts)
-            if len(values.values) > 1:
+            if len(values.values) > 1 and not self.config['ignore_data_name']:
                 metric_parts.append(data_name)
 
             metric_name = self.config['metric_separator'].join(metric_parts)
