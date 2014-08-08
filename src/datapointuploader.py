@@ -174,7 +174,6 @@ class DatapointUploader():
                     self.disconnect()
                     return []
                 m = json.loads(resp.read().strip())
-                print m
                 return m['rs']
             else:
                 logging.warning("Unable to connect to get source IDs!")
