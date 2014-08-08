@@ -4,16 +4,28 @@ import logging
 import os
 import sys
 import json
+import copy
 try:
     import httplib
     import urlparse
+    from urllib import urlencode
 except ImportError:
     import http.client
     import urllib.parse
     httplib = http.client
     urlparse = urllib.parse
+    urlencode = urllib.urlencode
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+def get_aws_instance_id(timeout=10):
+    conn = httplib.HTTPConnection("169.254.169.254", 80, strict=True, timeout=timeout)
+    conn.request("GET", "/latest/meta-data/instance-id")
+    resp = conn.getresponse()
+    if resp.status == 200:
+        return resp.read()
+    else:
+        raise Exception("Unable to find instance ID from endpoint")
 
 
 class DataPoint(object):
@@ -117,6 +129,61 @@ class DatapointUploader():
             self.conn.close()
         self.conn = None
 
+    def tagSource(self, source_name, tags_to_add):
+        sources = self.getSourcesFromName(source_name)
+        if len(sources) == 0:
+            return
+        try:
+            for source in sources:
+                postBody = copy.copy(tags_to_add)
+                for key, value in tags_to_add.items():
+                    if key in source and source[key] == value:
+                        del postBody[key]
+                if len(postBody) == 0:
+                    continue
+                self.connect()
+                if self.connected():
+                    self.conn.request("POST", "/source/%s" % source['sf_id'], json.dumps(postBody),
+                                      {"Content-type": "application/json",
+                                       "X-SF-TOKEN": self.auth_token,
+                                       "User-Agent": self.userAgent()})
+                    resp = self.conn.getresponse()
+                    if resp.status != 200:
+                        logging.warning("Unexpected status of %d", resp.status)
+                        self.disconnect()
+                        return False
+                    return True
+                else:
+                    logging.warning("Unable to connect to tag source name!")
+        except Exception as e:
+            logging.exception("Exception tagging sources: %s", e)
+            self.disconnect()
+
+    def getSourcesFromName(self, source_name):
+        try:
+            self.connect()
+            if self.connected():
+                params = urlencode({'query': 'sf_source:' + source_name})
+                self.conn.request("GET", '/source?' + params, '',
+                                  {"Content-type": "application/json",
+                                   "X-SF-TOKEN": self.auth_token,
+                                   "User-Agent": self.userAgent()})
+                resp = self.conn.getresponse()
+                if resp.status != 200:
+                    logging.warning("Unexpected status of %d", resp.status)
+                    self.disconnect()
+                    return []
+                m = json.loads(resp.read().strip())
+                print m
+                return m['rs']
+            else:
+                logging.warning("Unable to connect to get source IDs!")
+                return []
+        except Exception as e:
+            logging.exception("Exception getting sources: %s", e)
+            self.disconnect()
+            return []
+
     def addDatapoints(self, datapoints):
         try:
             self.connect()
@@ -159,6 +226,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--source', default="DatapointUploaderSource", help='Source name to send')
     parser.add_argument('--metric', default="DatapointUploaderMetric", help='Metric name to send')
+    parser.add_argument('--tag', default=None, help='Tag to add to the source')
     parser.add_argument('--type', default="GAUGE", help='Type of metric to send')
     parser.add_argument('--value', default=time.time(), help='Value to send')
 
@@ -169,3 +237,5 @@ if __name__ == '__main__':
     dps = [DataPoint(args.source, args.metric, args.value, args.type)]
     assert(w.registerMultipleSeries(dps))
     print ("Result of add datapoints: " + str(w.addDatapoints(dps)))
+    if args.tag is not None:
+        w.tagSource(args.source, {"test_tag": args.tag})

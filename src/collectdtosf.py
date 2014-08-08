@@ -2,11 +2,11 @@ import os
 import sys
 import math
 import re
-
 import logging
 import logging.config
 
 import collectd
+
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.dirname(__file__))
@@ -51,7 +51,7 @@ def parse_types_file(path):
 
     with open(path, 'r') as f:
         # Example line:
-        #   if_octets  rx:COUNTER:0:4294967295, tx:COUNTER:0:4294967295
+        # if_octets  rx:COUNTER:0:4294967295, tx:COUNTER:0:4294967295
         for line in f:
             line = line.strip()
             # Comment line: ignore
@@ -210,7 +210,8 @@ class SignalFxPlugin(object):
                                         values.type_instance
         ] if elem != None and elem != False and len(elem) > 0]
 
-        source = next((s for s in [self.config['source'], values.host, 'CollectD'] if s is not None and len(s) > 0))
+        source = next((s for s in [self.config['source'], values.host, 'CollectD'] if
+                       s is not None and len(s) > 0))
 
         for (value, (data_name, data_type)) in zip(values.values, v_type):
             # Can value be None?
@@ -220,7 +221,6 @@ class SignalFxPlugin(object):
             metric_parts = list(name_parts)
             if len(values.values) > 1:
                 metric_parts.append(data_name)
-
 
             metric_name = self.config['metric_separator'].join(metric_parts)
             if self.config['lower_case']:
@@ -286,7 +286,7 @@ class SignalFxPlugin(object):
                 try:
                     dp = self.data_queue.get_nowait()
                     if dp is None:
-                        return # We need to die.  Don't bother flushing metrics
+                        return  # We need to die.  Don't bother flushing metrics
                     items.append(dp)
                 except self.queue_empty_exception as e:
                     break
@@ -294,7 +294,7 @@ class SignalFxPlugin(object):
             unregistered_metrics = set()
             with self.registration_lock:
                 metrics_in_register_set = set()
-		# TODO(jack): Consider removing metrics_to_register
+                # TODO(jack): Consider removing metrics_to_register
                 metrics_to_register = []
                 for item in items:
                     if item.metric not in self.registered_series and item.metric not in \
