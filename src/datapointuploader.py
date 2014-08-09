@@ -14,7 +14,7 @@ except ImportError:
     import urllib.parse
     httplib = http.client
     urlparse = urllib.parse
-    urlencode = urllib.urlencode
+    urlencode = urlparse.urlencode
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
