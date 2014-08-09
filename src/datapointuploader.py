@@ -9,12 +9,14 @@ try:
     import httplib
     import urlparse
     from urllib import urlencode
+    use_strict_in_py2 = True
 except ImportError:
     import http.client
     import urllib.parse
     httplib = http.client
     urlparse = urllib.parse
     urlencode = urlparse.urlencode
+    use_strict_in_py2 = False
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -73,13 +75,16 @@ class DatapointUploader():
     def connect(self):
         if not self.connected():
             if self.https:
-                logging.debug('https Connecting to %s...', self)
-                self.conn = httplib.HTTPSConnection(self.host, self.port, strict=True,
-                                                   timeout=self.timeout)
+                conn_function = httplib.HTTPSConnection
             else:
-                logging.debug('http Connecting to %s...', self)
-                self.conn = httplib.HTTPConnection(self.host, self.port, strict=True,
-                                                   timeout=self.timeout)
+                conn_function = httplib.HTTPConnection
+            args = [self.host, self.port]
+            kwargs = {'timeout': self.timeout}
+            if use_strict_in_py2:
+                kwargs['strict'] = True
+
+            logging.info("Connecting to %s/%s", args, kwargs)
+            self.conn = conn_function(*args, **kwargs)
 
     def connected(self):
         """Tells whether this instance is connected to the remote service."""
@@ -107,7 +112,7 @@ class DatapointUploader():
                     self.disconnect()
                     return [False] * len(all_series)
                 ret = []
-                for res in json.loads(result):
+                for res in json.loads(result.decode("utf-8")):
                     if 'code' in res:
                         if int(res['code']) != 409: # Already exists
                             logging.debug("Unknown code for %s", res)
@@ -173,7 +178,7 @@ class DatapointUploader():
                     logging.warning("Unexpected status of %d", resp.status)
                     self.disconnect()
                     return []
-                m = json.loads(resp.read().strip())
+                m = json.loads(resp.read().decode("utf-8").strip())
                 return m['rs']
             else:
                 logging.warning("Unable to connect to get source IDs!")
@@ -204,7 +209,7 @@ class DatapointUploader():
                     self.disconnect()
                     return False
                 result = resp.read().strip()
-                if json.loads(result) != "OK":
+                if json.loads(result.decode("utf-8")) != "OK":
                     logging.warning("Unexpected body data of %s", result)
                     self.disconnect()
                     return False
