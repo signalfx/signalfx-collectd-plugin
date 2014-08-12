@@ -280,7 +280,7 @@ class SignalFxPlugin(object):
 
     def shutdown(self):
         log.info("Shutdown called")
-        for x in xrange(self.config['flushing_threads']):
+        for x in range(self.config['flushing_threads']):
             self.data_queue.put_nowait(None)
         self.is_shutdown = True
 
@@ -386,7 +386,11 @@ class SignalFxPlugin(object):
     def init(self):
         # I can't import Queue until init() is called, because documentation says don't use the
         # threading library (which queue uses) until init() is called first.
-        import Queue
+        try:
+            import Queue
+        except ImportError:
+            import queue
+            Queue = queue
         import threading
 
         self.queue_full_exception = Queue.Full
@@ -409,7 +413,7 @@ class SignalFxPlugin(object):
         self.metrics_lock = threading.Lock()
         collectd.register_write(plugin_signalfx_write, data=self)
         threads = []
-        for x in xrange(self.config['flushing_threads']):
+        for x in range(self.config['flushing_threads']):
             log.debug("Creating flushing threads")
             threads.append(threading.Thread(target=SignalFxPlugin.drainMyQueue, args=(self,)))
         log.debug("Starting threads")

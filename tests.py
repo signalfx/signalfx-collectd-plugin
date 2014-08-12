@@ -1,5 +1,15 @@
-import SimpleHTTPServer
-import SocketServer
+try:
+    import SimpleHTTPServer
+    import SocketServer
+    import urlparse
+except ImportError:
+    import http.server
+    import socketserver
+    import urllib.parse
+    urlparse = urllib.parse
+    SimpleHTTPServer = http.server
+    SocketServer = socketserver
+
 import pretend_collectd as collectd
 
 import sys
@@ -11,7 +21,7 @@ import logging
 
 logging.basicConfig()
 import threading
-import urlparse
+
 
 log = logging.getLogger(__name__)
 
@@ -66,7 +76,7 @@ class SignalFxSimpleHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler
     def do_POST(self):
         log.debug("Do post?")
         len_to_read = int(self.headers.get('Content-Length'))
-        data = self.rfile.read(len_to_read)
+        data = self.rfile.read(len_to_read).decode()
         parsed_url = urlparse.urlparse(self.path)
         if parsed_url.path == '/metric':
             self.processMetric(data)
@@ -80,7 +90,7 @@ class SignalFxSimpleHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler
         self.send_response(200)
         self.end_headers()
         res = [{'code': 409} for i in range(len(data))]
-        self.wfile.write(json.dumps(res))
+        self.wfile.write(str.encode(json.dumps(res)))
         [self.requestSemaphore.release() for i in range(len(data))]
 
     def processDatapoints(self, data):
@@ -102,7 +112,7 @@ class SignalFxSimpleHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler
         self.send_response(200)
         self.end_headers()
         res = 'OK'
-        self.wfile.write(json.dumps(res))
+        self.wfile.write(str.encode(json.dumps(res)))
         [self.requestSemaphore.release() for i in range(len(datapoints))]
         log.debug("Done process?")
 
@@ -152,7 +162,7 @@ class CollectdTestCase(unittest.TestCase):
             read_func(data)
 
         # get all 6 metrics and their registration
-        [SignalFxSimpleHTTPRequestHandler.requestSemaphore.acquire() for _ in xrange(12)]
+        [SignalFxSimpleHTTPRequestHandler.requestSemaphore.acquire() for _ in range(12)]
         assert len(SignalFxSimpleHTTPRequestHandler.datapoints) == 7
         assert [v for v in SignalFxSimpleHTTPRequestHandler.datapoints if
                 v['metric'] == 'collectd.collectd-signalfx.metrics_written.derive'][0]['value'] == 1
