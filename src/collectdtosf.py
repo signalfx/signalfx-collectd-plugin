@@ -114,6 +114,10 @@ def get_precompiled_regular_expressions(s):
         return []
 
 
+def compile_each_regex(s):
+    return re.compile(s)
+
+
 def plugin_signalfx_write(v, data=None):
     data.write(v)
 
@@ -166,6 +170,8 @@ class SignalFxPlugin(object):
             'queue_flush_size': (5000, int),
             # If true, will self report stats about the module
             'self_monitor': (True, str2bool),
+            # Replacement regex to clean up metric names
+            'replacement_regex': ([], compile_each_regex),
             # How many threads to run at once trying to flush from the metric queue
             'flushing_threads': (2, int),
             # If true, send all values with timestamp 0 (use our time for metrics,
@@ -194,13 +200,19 @@ class SignalFxPlugin(object):
 
     def configure(self, plugin_config):
         for k, (default, func) in self.config_setup.items():
-            self.config[k] = func(default)
+            if default == []:
+                self.config[k] = []
+            else:
+                self.config[k] = func(default)
 
         for child in plugin_config.children:
             map_key = camel_case_to_snake_case(child.key)
             if map_key in self.config_setup:
-                # We only consider the first option listed
-                self.config[map_key] = self.config_setup[map_key][1](child.values[0])
+                # We only consider the first option listed, unless a list
+                if isinstance(self.config[map_key], list):
+                    self.config[map_key].append(self.config_setup[map_key][1](child.values[0]))
+                else:
+                    self.config[map_key] = self.config_setup[map_key][1](child.values[0])
 
 
     def parseTypesFile(self):
@@ -229,7 +241,7 @@ class SignalFxPlugin(object):
                                         values.plugin_instance,
                                         values.type,
                                         values.type_instance
-        ] if elem != None and elem != False and len(elem) > 0]
+        ] if elem is not None and elem != False and len(elem) > 0]
 
         source = next((s for s in [self.config['source'], values.host, 'CollectD'] if
                        s is not None and len(s) > 0))
@@ -286,7 +298,7 @@ class SignalFxPlugin(object):
             signalboost_wrapper = DatapointUploader(
                 self.config['api_token'], url, timeout=self.config['timeout'],
                 user_agent_name=PLUGIN_NAME, user_agent_version=VERSION)
-        except Exception as e:
+        except Exception:
             collectd.warning(
                 'Not reporting data to SignalFx. Check the SignalFx plugin '
                 'log.')
@@ -296,7 +308,7 @@ class SignalFxPlugin(object):
                 format(url))
             raise
         log.info("Wrapper made")
-        while self.is_shutdown == False:
+        while not self.is_shutdown:
             # Block for an item
             dp = self.data_queue.get()
             if dp is None:
@@ -309,7 +321,7 @@ class SignalFxPlugin(object):
                     if dp is None:
                         return  # We need to die.  Don't bother flushing metrics
                     items.append(dp)
-                except self.queue_empty_exception as e:
+                except self.queue_empty_exception:
                     break
 
             unregistered_metrics = set()

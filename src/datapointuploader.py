@@ -88,7 +88,7 @@ class DatapointUploader():
 
     def connected(self):
         """Tells whether this instance is connected to the remote service."""
-        return self.conn != None
+        return self.conn is not None
 
     def registerMultipleSeries(self, all_series):
         assert (len(all_series) > 0)
@@ -130,7 +130,7 @@ class DatapointUploader():
         return [False] * len(all_series)
 
     def disconnect(self):
-        if self.conn != None:
+        if self.conn is not None:
             self.conn.close()
         self.conn = None
 
