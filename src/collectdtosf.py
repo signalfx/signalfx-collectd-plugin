@@ -177,10 +177,8 @@ class SignalFxPlugin(object):
             # If true, send all values with timestamp 0 (use our time for metrics,
             # not the time the metric had)
             'ignore_localtime': (True, str2bool),
-            # If true, the data_name part of the metric will not be appended to the metric name
-            # if we can uniquely identify the metric without it.  Usually, you don't need this since
-            # it's mostly redundant information
-            'ignore_data_name': (True, str2bool),
+            # If true, the data_name part of the metric will not be appended to the metric name.
+            'ignore_data_name': (False, str2bool),
         }
         self.config = {}
         self.data_queue = None
