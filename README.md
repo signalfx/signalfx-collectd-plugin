@@ -1,4 +1,4 @@
-CollectD plugin for SignalFx
+CollectD Plugin for SignalFuse
 ==============================
 
 Installation of collectd via apt-get
