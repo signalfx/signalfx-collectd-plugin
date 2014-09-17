@@ -21,6 +21,8 @@ def main():
     parser.add_argument('--password', default=None, help='Optional command line password')
     parser.add_argument('--org', default=None,
                         help='If set, change output to only the auth token of this org')
+    parser.add_argument('--print_user_org', default=False, action='store_true',
+                        help='If set, change output to only the auth token of this org')
     parser.add_argument('--update', default=None,
                         help='If set, will look for a collectd file and auto update to the auth token you select.')
     parser.add_argument('user_name', help="User name to log in with")
@@ -63,7 +65,8 @@ def main():
                 printed_org = True
         else:
             all_auth_tokens.append((i['sf_organization'], i['sf_apiAccessToken']))
-            print ("%40s%40s" % (i['sf_organization'], i['sf_apiAccessToken']))
+            if args.print_user_org or not i['sf_organization'].startswith("per-user-org"):
+                print ("%40s%40s" % (i['sf_organization'], i['sf_apiAccessToken']))
     if args.org is not None and not printed_org:
         sys.stderr.write("Unable to find the org you set.\n")
         sys.exit(1)
