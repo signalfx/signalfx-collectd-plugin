@@ -400,7 +400,7 @@ class SignalFxPlugin(object):
         try:
             self.parseTypesFile()
         except:
-            msg = "Unable to parse types.db file %s", self.config['types_db']
+            msg = "Unable to parse types.db file %s" % self.config['types_db']
             collectd.error(msg)
             raise Exception(msg)
 
