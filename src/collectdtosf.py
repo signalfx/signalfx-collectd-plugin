@@ -10,7 +10,7 @@ import collectd
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.dirname(__file__))
-from datapointuploader import DatapointUploader, DataPoint
+from datapointuploader import DatapointUploader, DataPoint, get_aws_instance_id
 
 log = logging.getLogger(__name__)
 
@@ -179,6 +179,8 @@ class SignalFxPlugin(object):
             'ignore_localtime': (True, str2bool),
             # If true, the data_name part of the metric will not be appended to the metric name.
             'ignore_data_name': (False, str2bool),
+            # If true, then use the aws instance id as the source instead of the Hostname config value
+            'use_aws_instance_id_as_source' : (False, str2bool),
         }
         self.config = {}
         self.data_queue = None
@@ -396,6 +398,9 @@ class SignalFxPlugin(object):
 
         if self.config['log_config'] != '':
             logging.config.fileConfig(self.config['log_config'], disable_existing_loggers=False)
+
+        if self.config['use_aws_instance_id_as_source']:
+            self.config['source'] = get_aws_instance_id()
 
         try:
             self.parseTypesFile()
