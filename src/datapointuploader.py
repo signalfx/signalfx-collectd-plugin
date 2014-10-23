@@ -31,12 +31,22 @@ def get_aws_instance_id(timeout=10):
 
 
 class DataPoint(object):
-    def __init__(self, source, metric, value, ds_type, timestamp=0):
+    def __init__(self, source, metric, value, ds_type, timestamp=0, dimensions=None):
+        if dimensions is None:
+            dimensions = {}
         self.source = source
         self.metric = metric
         self.value = value
         self.ds_type = ds_type
         self.timestamp = timestamp
+        self.dimensions = dimensions
+
+    def getDimensions(self):
+        ret = {}
+        if self.source is not None:
+            ret['sf_source'] = self.source
+        ret.update(self.dimensions)
+        return ret
 
     def __str__(self):
         return "%s/%s/%s/%s/%d" % (
@@ -221,6 +231,46 @@ class DatapointUploader():
             logging.exception("Exception adding points %s", e)
             self.disconnect()
 
+    def addDatapointsV2(self, datapoints):
+        try:
+            self.connect()
+            if self.connected():
+                postObj = {}
+                for dp in datapoints:
+                    s = {"metric": dp.metric,
+                         "value": dp.value,
+                         "dimensions": dp.getDimensions(),
+                    }
+                    if dp.timestamp != 0:
+                        s['timestamp'] = dp.timestamp
+                    objKey = dp.ds_type.lower()
+                    if objKey not in postObj:
+                        postObj[objKey] = []
+                    postObj[objKey].append(s)
+                postBody = json.dumps(postObj)
+                logging.warning("Body is %s", postBody)
+                self.conn.request("POST", "/v2_datapoint", postBody,
+                                  {"Content-type": "application/json",
+                                   "X-SF-TOKEN": self.auth_token,
+                                   "User-Agent": self.userAgent()})
+                resp = self.conn.getresponse()
+                if resp.status != 200:
+                    logging.warning("Unexpected status of %d body=%s", resp.status, resp.read().strip())
+                    self.disconnect()
+                    return False
+                result = resp.read().strip()
+                if json.loads(result.decode("utf-8")) != "OK":
+                    logging.warning("Unexpected body data of %s", result)
+                    self.disconnect()
+                    return False
+                return True
+
+            else:
+                logging.warning("Unable to connect to send datapoints!")
+        except Exception as e:
+            logging.exception("Exception adding points %s", e)
+            self.disconnect()
+
 
 if __name__ == '__main__':
     import argparse, time
@@ -233,13 +283,18 @@ if __name__ == '__main__':
     parser.add_argument('--tag', default=None, help='Tag to add to the source')
     parser.add_argument('--type', default="GAUGE", help='Type of metric to send')
     parser.add_argument('--value', default=time.time(), help='Value to send')
+    parser.add_argument('--version', default=1, help='Version to use')
 
     parser.add_argument('auth_token', help="Which auth token to use")
 
     args = parser.parse_args()
     w = DatapointUploader(args.auth_token, args.url)
-    dps = [DataPoint(args.source, args.metric, args.value, args.type)]
-    assert(w.registerMultipleSeries(dps))
-    print ("Result of add datapoints: " + str(w.addDatapoints(dps)))
+    if args.version == 1:
+        dps = [DataPoint(args.source, args.metric, args.value, args.type)]
+        assert(w.registerMultipleSeries(dps))
+        print ("Result of add datapoints: " + str(w.addDatapoints(dps)))
+    else:
+        dps = [DataPoint(None, args.metric, args.value, args.type, dimensions={"from":"datapointuploader_6"})]
+        print ("Result of add datapoints: " + str(w.addDatapointsV2(dps)))
     if args.tag is not None:
         w.tagSource(args.source, {"test_tag": args.tag})
