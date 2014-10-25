@@ -281,6 +281,7 @@ if __name__ == '__main__':
     parser.add_argument('--source', default="DatapointUploaderSource", help='Source name to send')
     parser.add_argument('--metric', default="DatapointUploaderMetric", help='Metric name to send')
     parser.add_argument('--tag', default=None, help='Tag to add to the source')
+    parser.add_argument('--frm', default="datapointuploader", help='from dimension')
     parser.add_argument('--type', default="GAUGE", help='Type of metric to send')
     parser.add_argument('--value', default=time.time(), help='Value to send')
     parser.add_argument('--version', default=1, help='Version to use')
@@ -294,7 +295,7 @@ if __name__ == '__main__':
         assert(w.registerMultipleSeries(dps))
         print ("Result of add datapoints: " + str(w.addDatapoints(dps)))
     else:
-        dps = [DataPoint(None, args.metric, args.value, args.type, dimensions={"from":"datapointuploader_6"})]
+        dps = [DataPoint(args.source, args.metric, int(args.value), args.type, dimensions={"from":args.frm})]
         print ("Result of add datapoints: " + str(w.addDatapointsV2(dps)))
     if args.tag is not None:
         w.tagSource(args.source, {"test_tag": args.tag})
