@@ -25,6 +25,9 @@ def main():
                         help='If set, change output to only the auth token of this org')
     parser.add_argument('--update', default=None,
                         help='If set, will look for a collectd file and auto update to the auth token you select.')
+    parser.add_argument('--error_on_multiple', default=False, action ='store_true',
+                        help='If set then an error will be raised if the user is part of multiple organizations '
+                             'and --org is not specified')
     parser.add_argument('user_name', help="User name to log in with")
 
     args = parser.parse_args()
@@ -69,6 +72,9 @@ def main():
                 print ("%40s%40s" % (i['sf_organization'], i['sf_apiAccessToken']))
     if args.org is not None and not printed_org:
         sys.stderr.write("Unable to find the org you set.\n")
+        sys.exit(1)
+    if args.error_on_multiple and len(all_auth_tokens) > 1:
+        sys.stderr.write('Users is part of more than one organization.\n')
         sys.exit(1)
     if args.update is None:
         sys.exit(0)
