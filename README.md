@@ -21,12 +21,12 @@ Configuration
 
 1. Copy over the signalfx collectd repository to a local directory
     ```
-$ git clone https://github.com/signalfx/collectd-signalx /opt/collectd-signalfx
+$ git clone https://github.com/signalfx/signalfx-collectd-plugin /opt/signalfx-collectd-plugin
     ```
 
 2. Create a signalfx collectd conf 
     ```
-$ cp /opt/collectd-signalfx/collectd-signalfx.conf /etc
+$ cp /opt/signalfx-collectd-plugin/signalfx-collectd-plugin.conf /etc
     ```
 
 3. Modify collectd-signalfx.conf and replace ###API_TOKEN### with your API token
@@ -39,7 +39,7 @@ $ cp /opt/collectd-signalfx/collectd-signalfx.conf /etc
 5. Check the following files to debug the install:
    ```
    /var/log/collectd.log
-   /var/log/collectd_signalfx.log
+   /var/log/signalfx-collectd-plugin.log
    ```
 
 Build status
