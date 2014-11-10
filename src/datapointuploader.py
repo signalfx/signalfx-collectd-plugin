@@ -124,7 +124,7 @@ class DatapointUploader():
                 ret = []
                 for res in json.loads(result.decode("utf-8")):
                     if 'code' in res:
-                        if int(res['code']) != 409: # Already exists
+                        if int(res['code']) != 409:  # Already exists
                             logging.debug("Unknown code for %s", res)
                             ret.append(False)
                         else:
@@ -209,7 +209,7 @@ class DatapointUploader():
                     if dp.timestamp != 0:
                         s['timestamp'] = dp.timestamp
                     postBody += json.dumps(s)
-                self.conn.request("POST", "/datapoint", postBody,
+                self.conn.request("POST", "/v2/datapoint", postBody,
                                   {"Content-type": "application/json",
                                    "X-SF-TOKEN": self.auth_token,
                                    "User-Agent": self.userAgent()})
@@ -249,7 +249,7 @@ class DatapointUploader():
                     postObj[objKey].append(s)
                 postBody = json.dumps(postObj)
                 logging.warning("Body is %s", postBody)
-                self.conn.request("POST", "/v2_datapoint", postBody,
+                self.conn.request("POST", "/v2/datapoint", postBody,
                                   {"Content-type": "application/json",
                                    "X-SF-TOKEN": self.auth_token,
                                    "User-Agent": self.userAgent()})
@@ -278,10 +278,10 @@ if __name__ == '__main__':
         description='Test sending a test datapoint to SignalFX.')
     parser.add_argument('--url', default='https://api.signalfuse.com', help='URL Endpoint.')
 
-    parser.add_argument('--source', default="DatapointUploaderSource", help='Source name to send')
+    parser.add_argument('--source', default=None, help='Source name to send')
     parser.add_argument('--metric', default="DatapointUploaderMetric", help='Metric name to send')
     parser.add_argument('--tag', default=None, help='Tag to add to the source')
-    parser.add_argument('--frm', default="datapointuploader", help='from dimension')
+    parser.add_argument('--dim', default="datapointuploader", help='dimensions')
     parser.add_argument('--type', default="GAUGE", help='Type of metric to send')
     parser.add_argument('--value', default=time.time(), help='Value to send')
     parser.add_argument('--version', default=1, help='Version to use')
@@ -295,7 +295,11 @@ if __name__ == '__main__':
         assert(w.registerMultipleSeries(dps))
         print ("Result of add datapoints: " + str(w.addDatapoints(dps)))
     else:
-        dps = [DataPoint(args.source, args.metric, int(args.value), args.type, dimensions={"from":args.frm})]
+        dps = [DataPoint(args.source,
+                         args.metric,
+                         int(args.value),
+                         args.type,
+                         dimensions=json.loads(args.dim))]
         print ("Result of add datapoints: " + str(w.addDatapointsV2(dps)))
     if args.tag is not None:
         w.tagSource(args.source, {"test_tag": args.tag})
