@@ -9,14 +9,24 @@ except ImportError:
     import urllib.request
     # This usage is generally correct for this script
     urllib2 = urllib.request
-import argparse
+have_argparse = True
+try:
+     import argparse
+except ImportError:
+     from optparse import OptionParser
+     OptionParser.add_argument = OptionParser.add_option
+     have_argparse = False
 import sys
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Helper script that gives you all the access tokens your account has.',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    description = 'Helper script that gives you all the access tokens your account has.'
+    if have_argparse:
+        parser = argparse.ArgumentParser(description=description,
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    else:
+        parser = OptionParser('%prog [options] user_name', description=description)
+
     parser.add_argument('--url', default='https://api.signalfuse.com', help='SignalFX endpoint')
     parser.add_argument('--password', default=None, help='Optional command line password')
     parser.add_argument('--org', default=None,
@@ -28,9 +38,17 @@ def main():
     parser.add_argument('--error_on_multiple', default=False, action ='store_true',
                         help='If set then an error will be raised if the user is part of multiple organizations '
                              'and --org is not specified')
-    parser.add_argument('user_name', help="User name to log in with")
 
-    args = parser.parse_args()
+    if have_argparse:
+        parser.add_argument('user_name', help="User name to log in with")
+        args = parser.parse_args()
+    else:
+        (args, leftover) = parser.parse_args()
+        if not leftover:
+            parser.error("User name to log in with must be specified.")
+        if len(leftover) != 1:
+            parser.error("Only one user name to log in with must be specified.")
+        args.user_name = leftover[0]
 
     if args.update is not None:
         assert os.path.isfile(args.update), "Unable to find the file to update: " + args.update
