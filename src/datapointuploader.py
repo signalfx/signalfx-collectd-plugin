@@ -209,7 +209,7 @@ class DatapointUploader():
                     if dp.timestamp != 0:
                         s['timestamp'] = dp.timestamp
                     postBody += json.dumps(s)
-                self.conn.request("POST", "/v2/datapoint", postBody,
+                self.conn.request("POST", "/v1/datapoint", postBody,
                                   {"Content-type": "application/json",
                                    "X-SF-TOKEN": self.auth_token,
                                    "User-Agent": self.userAgent()})
