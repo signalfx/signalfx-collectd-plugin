@@ -160,8 +160,8 @@ class SignalFxPlugin(object):
             # A , separated list of metrics.  Only these metrics will be sent to signalfx,
             # default all
             'include_regex': ('', get_precompiled_regular_expressions),
-            # Config file to get logging information
-            'log_config': ('', str),
+            # Config file choices to get logging information
+            'log_config': ([], str),
             # Internal buffer size of metrics to send backload
             'max_queue_size': (20000, int),
             # Timeout for HTTP requests to us
@@ -396,8 +396,10 @@ class SignalFxPlugin(object):
         self.queue_full_exception = Queue.Full
         self.queue_empty_exception = Queue.Empty
 
-        if self.config['log_config'] != '':
-            logging.config.fileConfig(self.config['log_config'], disable_existing_loggers=False)
+        if self.config['log_config']:
+            for log_config in self.config['log_config']:
+                if os.path.exists(log_config):
+                    logging.config.fileConfig(log_config, disable_existing_loggers=False)
 
         if self.config['use_aws_instance_id_as_source']:
             self.config['source'] = get_aws_instance_id()
