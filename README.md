@@ -11,4 +11,4 @@ LoadPlugin write_http
  Password "<<<<<<INSERT_TOKEN_HERE>>>>>>"
  Format "JSON"
  </URL>
-</Plugin>```
+</Plugin>
