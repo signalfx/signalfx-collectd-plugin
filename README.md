@@ -1,47 +1,14 @@
-CollectD Plugin for SignalFuse
+Deprecation notice
 ==============================
 
-Installation of collectd via apt-get
-------------------------
+Use of this plugin is deprecated.  To integrate collectd and SignalFx, please follow the instructions at https://support.signalfx.com/hc/en-us/articles/201094025-Use-collectd.  The short version is to add this to your collectd config:
 
-1. Install colletctd via apt-get
-
-    ```
-$ sudo apt-get install collectd
-    ```
-
-Supported python versions
--------------------------
-
-The plugin currently only supports python 2.7+ and does
-not support 3.0
-
-Configuration
--------------
-
-1. Copy over the signalfx collectd repository to a local directory
-    ```
-$ git clone https://github.com/signalfx/signalfx-collectd-plugin /opt/signalfx-collectd-plugin
-    ```
-
-2. Create a signalfx collectd conf 
-    ```
-$ cp /opt/signalfx-collectd-plugin/signalfx-collectd-plugin.conf /etc
-    ```
-
-3. Modify collectd-signalfx.conf and replace ###API_TOKEN### with your API token
-
-4. Start collectd:
-    ```
-    sudo /etc/init.d/collectd start
-    ```
-
-5. Check the following files to debug the install:
-   ```
-   /var/log/collectd.log
-   /var/log/signalfx-collectd-plugin.log
-   ```
-
-Build status
-------------
-[![Build Status](https://travis-ci.org/signalfx/collectd-signalfx.svg?branch=master)](https://travis-ci.org/signalfx/collectd-signalfx)
+```
+LoadPlugin write_http
+<Plugin "write_http">
+ <URL "https://ingest.signalfx.com/v1/collectd">
+ User "auth"
+ Password "<<<<<<INSERT_TOKEN_HERE>>>>>>"
+ Format "JSON"
+ </URL>
+</Plugin>```
