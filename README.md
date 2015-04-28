@@ -6,9 +6,9 @@ Use of this plugin is deprecated.  To integrate collectd and SignalFx, please fo
 ```
 LoadPlugin write_http
 <Plugin "write_http">
- <URL "https://ingest.signalfx.com/v1/collectd">
- User "auth"
- Password "<<<<<<INSERT_TOKEN_HERE>>>>>>"
- Format "JSON"
- </URL>
+  <URL "https://ingest.signalfx.com/v1/collectd">
+    User "auth"
+    Password "<<<<<<INSERT_TOKEN_HERE>>>>>>"
+    Format "JSON"
+  </URL>
 </Plugin>
