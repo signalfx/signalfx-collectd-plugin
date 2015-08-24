@@ -190,6 +190,7 @@ def get_aws_info(host_info={}):
     call into aws to get some information about the instance, timeout really
     small for non aws systems and only try the once per startup
     """
+    global AWS
     if not AWS:
         return host_info
 
@@ -211,7 +212,6 @@ def get_aws_info(host_info={}):
             host_info["aws_" + k] = identity[v]
     except:
         log("not an aws box")
-        global AWS
         AWS = False
 
     return host_info
