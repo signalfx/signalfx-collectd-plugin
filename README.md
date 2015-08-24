@@ -5,7 +5,7 @@ Provides meta-data about host and will send collectd notifications to SignalFx i
 
 Example Config:
 
-
+```
 LoadPlugin python
 <Plugin python>
   ModulePath "/opt/python-plugins"
@@ -19,7 +19,7 @@ LoadPlugin python
     NotifyLevel "OKAY"
   </Module>
 </Plugin>
-
+```
 
 Notifications: do we want to emit notifications from the plugin true or false. Default is false.
 URL: where to emit notifications via json to. The example url is the default.
