@@ -10,10 +10,11 @@ import socket
 import sys
 import string
 import platform
-import urllib2
 import signal
-import time
 import subprocess
+import time
+
+import requests
 
 if __name__ != '__main__':
     import collectd
@@ -24,12 +25,13 @@ METADATA = {}
 API_TOKEN = ""
 TIMEOUT = 10
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.1"
+VERSION = "0.0.2"
 NOTIFY_LEVEL = -1
 TYPE_INSTANCE = "host-meta-data"
 TYPE = "objects"
 FIRST = True
 AWS = True
+INTERVAL = 10
 
 
 def log(param):
@@ -37,7 +39,7 @@ def log(param):
     if __name__ != '__main__':
         collectd.info("%s: %s" % (PLUGIN_NAME, param))
     else:
-        print param
+        sys.stderr.write("%s\n" % param)
 
 
 def plugin_config(conf):
@@ -110,21 +112,27 @@ def all_interfaces():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     max_possible = 8  # initial value
     while True:
-        bytes = max_possible * struct_size
-        names = array.array('B', '\0' * bytes)
+        _bytes = max_possible * struct_size
+        names = array.array('B')
+        for i in range(0, _bytes):
+            names.append(0)
         outbytes = struct.unpack('iL', fcntl.ioctl(
             s.fileno(),
             0x8912,  # SIOCGIFCONF
-            struct.pack('iL', bytes, names.buffer_info()[0])
+            struct.pack('iL', _bytes, names.buffer_info()[0])
         ))[0]
-        if outbytes == bytes:
+        if outbytes == _bytes:
             max_possible *= 2
         else:
             break
     namestr = names.tostring()
-    return [(namestr[i:i + 16].split('\0', 1)[0],
-             socket.inet_ntoa(namestr[i + 20:i + 24]))
-            for i in range(0, outbytes, struct_size)]
+    ifaces = []
+    for i in range(0, outbytes, struct_size):
+        iface_name = bytes.decode(namestr[i:i + 16]).split('\0', 1)[0]
+        iface_addr = socket.inet_ntoa(namestr[i + 20:i + 24])
+        ifaces.append((iface_name, iface_addr))
+
+    return ifaces
 
 
 def get_interfaces(host_info={}):
@@ -145,7 +153,7 @@ def get_cpu_info(host_info={}):
         nb_units = 0
         for p in f.readlines():
             if ':' in p:
-                x, y = map(lambda x: string.strip(x), string.split(p, ':', 1))
+                x, y = map(lambda x: x.strip(), p.split(':', 1))
                 if x.startswith("physical id"):
                     if nb_cpu < int(y):
                         nb_cpu = int(y)
@@ -196,20 +204,20 @@ def get_aws_info(host_info={}):
 
     url = "http://169.254.169.254/latest/dynamic/instance-identity/document"
     try:
-        req = urllib2.Request(url)
-        response = urllib2.urlopen(req, timeout=0.1)
-        identity = json.loads(response.read())
-        want = {
-            'availability_zone': 'availabilityZone',
-            'instance_type': 'instanceType',
-            'instance_id': 'instanceId',
-            'image_id': 'imageId',
-            'account_id': 'accountId',
-            'region': 'region',
-            'architecture': 'architecture',
-        }
-        for k, v in want.iteritems():
-            host_info["aws_" + k] = identity[v]
+        response = requests.get(url, timeout=0.1)
+        if response.ok:
+            identity = json.loads(response.text)
+            want = {
+                'availability_zone': 'availabilityZone',
+                'instance_type': 'instanceType',
+                'instance_id': 'instanceId',
+                'image_id': 'imageId',
+                'account_id': 'accountId',
+                'region': 'region',
+                'architecture': 'architecture',
+            }
+            for k, v in iter(want.items()):
+                host_info["aws_" + k] = identity[v]
     except:
         log("not an aws box")
         AWS = False
@@ -220,7 +228,7 @@ def get_aws_info(host_info={}):
 def popen(command):
     """ using subprocess instead of check_output for 2.6 comparability """
     output = subprocess.Popen(command, stdout=subprocess.PIPE).communicate()[0]
-    return string.strip(output)
+    return output.strip()
 
 
 def get_collectd_version(host_info={}):
@@ -236,8 +244,24 @@ def get_collectd_version(host_info={}):
         if regexed:
             host_info["collectd_version"] = regexed.groups()[0]
     except Exception as e:
-        log("trying to parse collectd version failed %s", e.message)
+        log("trying to parse collectd version failed %s" % e)
 
+    return host_info
+
+
+def get_linux_version(host_info={}):
+    """
+    read /etc/lsb-release file for the version information
+    """
+    try:
+        with open("/etc/lsb-release") as f:
+            for line in f.readlines():
+                regexed = re.search('DISTRIB_DESCRIPTION="(.*)"', line)
+                if regexed:
+                    host_info["linux_version"] = regexed.groups()[0]
+                    break
+    except:
+        log("not a supported version of linux")
     return host_info
 
 
@@ -248,6 +272,7 @@ def get_host_info():
     get_kernel_info(host_info)
     get_aws_info(host_info)
     get_collectd_version(host_info)
+    get_linux_version(host_info)
     host_info["metadata_version"] = VERSION
     return host_info
 
@@ -258,7 +283,7 @@ def mapdiff(host_info, old_host_info):
     don't look for removals as they will likely be spurious
     """
     diff = {}
-    for k, v in host_info.iteritems():
+    for k, v in iter(host_info.items()):
         if k not in old_host_info:
             diff[k] = v
         elif old_host_info[k] != v:
@@ -269,33 +294,55 @@ def mapdiff(host_info, old_host_info):
 def putval(pname, metric, val):
     """Create collectd metric"""
 
-    collectd.Values(plugin=PLUGIN_NAME,
-                    plugin_instance=pname,
-                    meta={'0': True},
-                    type=val[1].lower(),
-                    type_instance=metric,
-                    values=[val[0]]).dispatch()
+    if __name__ != "__main__":
+        collectd.Values(plugin=PLUGIN_NAME,
+                        plugin_instance=pname,
+                        meta={'0': True},
+                        type=val[1].lower(),
+                        type_instance=metric,
+                        values=[val[0]]).dispatch()
+    else:
+        h = platform.node()
+        print('PUTVAL %s/%s/%s-%s interval=%d N:%s' % (
+            h, PLUGIN_NAME, val[1].lower(), metric, INTERVAL, val[0]))
+
+
+def get_uptime():
+    """get uptime for machine"""
+    with open("/proc/uptime") as f:
+        pieces = f.read()
+        uptime, idle_time = pieces.split()
+        return uptime
+
+    return None
 
 
 def send_datapoint():
     """write proof-of-life datapoint"""
-    putval("ping", "sf.host-meta-data", [time.time(), "gauge"])
+    putval("", "sf.host-uptime", [get_uptime(), "gauge"])
 
 
 def putnotif(property_name, message):
     """Create collectd notification"""
-    notif = collectd.Notification(plugin=PLUGIN_NAME,
-                                  plugin_instance=property_name,
-                                  type_instance=TYPE_INSTANCE,
-                                  type=TYPE)
-    notif.severity = 4  # OKAY
-    notif.message = message
-    notif.dispatch()
+
+    if __name__ != "__main__":
+        notif = collectd.Notification(plugin=PLUGIN_NAME,
+                                      plugin_instance=property_name,
+                                      type_instance=TYPE_INSTANCE,
+                                      type=TYPE)
+        notif.severity = 4  # OKAY
+        notif.message = message
+        notif.dispatch()
+
+    else:
+        h = platform.node()
+        print('PUTNOTIF %s/%s-%s/%s-%s %s' % (h, PLUGIN_NAME, property_name,
+                                              TYPE, TYPE_INSTANCE, message))
 
 
 def write_notifications(host_info):
     """emit any new notifications"""
-    for property_name, property_value in host_info.iteritems():
+    for property_name, property_value in iter(host_info.items()):
         putnotif(property_name, property_value)
 
 
@@ -342,7 +389,7 @@ def receive_notifications(notif):
     if notif_dict['plugin'] != PLUGIN_NAME and notif_dict['type'] != TYPE \
             and notif_dict['type_instance'] != TYPE_INSTANCE \
             and notif_dict["severity"] > NOTIFY_LEVEL:
-        print notif_dict
+        log(notif_dict)
         return
 
     notif_dict["severity"] = get_severity(notif_dict["severity"])
@@ -350,12 +397,10 @@ def receive_notifications(notif):
     headers = {"Content-Type": "application/json"}
     if API_TOKEN != "":
         headers["X-SF-TOKEN"] = API_TOKEN
-    try:
-        req = urllib2.Request(POST_URL, data, headers)
-        r = urllib2.urlopen(req, timeout=TIMEOUT)
-        sys.stdout.write(string.strip(r.read()))
-    except urllib2.URLError as e:
-        sys.stdout.write(str(e.reason))
+    req = requests.post(POST_URL, data=data, headers=headers, timeout=TIMEOUT)
+    sys.stdout.write(req.text.strip())
+    if not req.ok:
+        log("unsuccessful response: %s" % req.txt)
 
 
 def restore_sigchld():
@@ -379,4 +424,11 @@ if __name__ != "__main__":
     collectd.register_read(send)
 else:
     # outside plugin just collect the info
-    print get_host_info()
+    restore_sigchld()
+    send()
+    sys.stderr.write(json.dumps(get_host_info(), sort_keys=True,
+                                indent=4, separators=(',', ': ')))
+    if len(sys.argv) < 2:
+        while True:
+            time.sleep(INTERVAL)
+            send()
