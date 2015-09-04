@@ -94,8 +94,8 @@ def get_docker_container_id(pid):
 def get_docker_container_name(pid):
     dcname = ''
     dc_id = get_docker_container_id(pid)
-    if dc_id is not None:
-        log('pid %s: looking up container id: %d' % (pid, dc_id))
+    if dc_id:
+        log('pid %s: looking up container id: %s' % (pid, str(dc_id)))
         try:
             dcinfo = dclnt.inspect_container(dc_id)
         except:
