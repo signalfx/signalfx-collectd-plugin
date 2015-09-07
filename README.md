@@ -8,7 +8,7 @@ Example Config:
 ```
 LoadPlugin python
 <Plugin python>
-  ModulePath "/opt/python-plugins"
+  ModulePath "/opt/signalfx-collectd-plugin"
   LogTraces true
   Interactive false
   Import "signalfx_metadata"
