@@ -18,8 +18,8 @@ if __name__ != '__main__':
 
 import os
 import time
-
 import psutil
+import heapq
 from docker import Client
 
 
@@ -34,7 +34,6 @@ def log(param):
 MIN_RUN_INTERVAL = 0
 MIN_CPU_USAGE_PERCENT = 0
 MIN_MEM_USAGE_PERCENT = 0
-DEBUG_DO_FILTER_PROCESSES = True
 REPORT_DOCKER_CONTAINER_NAMES = False
 
 # GLOBALS
@@ -145,10 +144,9 @@ def populate_process_metrics(proc):
     pnthreads = pinfo['num_threads']
     pnctxsw_vol = pinfo['num_ctx_switches'][0]
     pnctxsw_invol = pinfo['num_ctx_switches'][1]
-    if (DEBUG_DO_FILTER_PROCESSES is False
-        or (pruntime >= MIN_RUN_INTERVAL
-            and (pcpupct >= MIN_CPU_USAGE_PERCENT
-                 or pmempct >= MIN_MEM_USAGE_PERCENT))):
+    if pruntime >= MIN_RUN_INTERVAL \
+        and (pcpupct >= MIN_CPU_USAGE_PERCENT \
+        or pmempct >= MIN_MEM_USAGE_PERCENT):
         pmap = {}
         set_process_metric_val(pmap, 'PM_CPU_PCT', pcpupct)
         set_process_metric_val(pmap, 'PM_MEM_PCT', pmempct)
@@ -203,20 +201,20 @@ def str2bool(v):
 
 def process_watch_config(conf):
     global MIN_RUN_INTERVAL
-    global DEBUG_DO_FILTER_PROCESSES
     global MIN_CPU_USAGE_PERCENT
     global MIN_MEM_USAGE_PERCENT
     global REPORT_DOCKER_CONTAINER_NAMES
+    global SHOW_TOP_N
 
+    MIN_RUN_INTERVAL = 10
+    MIN_CPU_USAGE_PERCENT = 0
+    MIN_MEM_USAGE_PERCENT = 0
+    REPORT_DOCKER_CONTAINER_NAMES = False
+    SHOW_TOP_N = 0
     for kv in conf.children:
         if kv.key == 'MinRuntimeSeconds':
             # int() will throw exception if invalid
             MIN_RUN_INTERVAL = int(kv.values[0])
-        elif kv.key == 'FilterProcesses':
-            DEBUG_DO_FILTER_PROCESSES = kv.values[0]
-            # if user typed something other than true/false
-            if type(DEBUG_DO_FILTER_PROCESSES).__name__ != 'bool':
-                DEBUG_DO_FILTER_PROCESSES = str2bool(kv.values[0])
         elif kv.key == 'MinCPUPercent':
             if int(kv.values[0]) == 0 or int(kv.values[0]) > 100:
                 raise Exception('invalid value for ' + kv.key)
@@ -229,6 +227,8 @@ def process_watch_config(conf):
             REPORT_DOCKER_CONTAINER_NAMES = kv.values[0]
             if type(REPORT_DOCKER_CONTAINER_NAMES).__name__ != 'bool':
                 REPORT_DOCKER_CONTAINER_NAMES = str2bool(kv.values[0])
+        elif kv.key == 'ShowTopN':
+            SHOW_TOP_N = int(kv.values[0])
         else:
             raise Exception('unknown config parameter')
     if __name__ != "__main__":
@@ -242,8 +242,20 @@ def write_metrics(mmaps, plugin_name):
 
 
 def send_metrics():
+    qualified_procs = []
     pmaps = get_processes_info()
-    write_metrics(pmaps, PLUGIN_NAME)
+    if SHOW_TOP_N > 0:
+        qualified_procs.extend(heapq.nlargest(SHOW_TOP_N, pmaps,
+                            key=lambda k:pmaps[k]['process.cpu.percent'][0]))
+        qualified_procs.extend(heapq.nlargest(SHOW_TOP_N, pmaps,
+                            key=lambda k:pmaps[k]['process.mem.percent'][0]))
+        qualified_procs = set(qualified_procs)
+        pmaps_to_print = {}
+        for proc in qualified_procs:
+            pmaps_to_print[proc] = pmaps[proc]
+    else:
+        pmaps_to_print = pmaps
+    write_metrics(pmaps_to_print, PLUGIN_NAME)
 
 
 if __name__ != "__main__":
@@ -251,11 +263,11 @@ if __name__ != "__main__":
     collectd.register_config(process_watch_config)
 else:
     process_watch_init()
-    MIN_RUN_INTERVAL = 0
-    DEBUG_DO_FILTER_PROCESSES = False
-    MIN_CPU_USAGE_PERCENT = 0
-    MIN_MEM_USAGE_PERCENT = 0
+    MIN_RUN_INTERVAL = 10
+    MIN_CPU_USAGE_PERCENT = 1
+    MIN_MEM_USAGE_PERCENT = 1
     REPORT_DOCKER_CONTAINER_NAMES = True
+    SHOW_TOP_N = 3
     send_metrics()
     if len(sys.argv) < 2:
         while True:
