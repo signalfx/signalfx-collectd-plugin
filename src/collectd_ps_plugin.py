@@ -123,6 +123,9 @@ def mk_process_name(in_pname, pid, ppid):
 
 
 def populate_process_metrics(proc):
+    global retired_procs
+    global prev_pmaps
+
     ACCESS_DENIED = ''
     try:
         pinfo = proc.as_dict(ad_value=ACCESS_DENIED)
@@ -145,36 +148,76 @@ def populate_process_metrics(proc):
     pnthreads = pinfo['num_threads']
     pnctxsw_vol = pinfo['num_ctx_switches'][0]
     pnctxsw_invol = pinfo['num_ctx_switches'][1]
-    if (DEBUG_DO_FILTER_PROCESSES is False
-        or (pruntime >= MIN_RUN_INTERVAL
-            and (pcpupct >= MIN_CPU_USAGE_PERCENT
-                 or pmempct >= MIN_MEM_USAGE_PERCENT))):
-        pmap = {}
-        set_process_metric_val(pmap, 'PM_CPU_PCT', pcpupct)
-        set_process_metric_val(pmap, 'PM_MEM_PCT', pmempct)
-        set_process_metric_val(pmap, 'PM_RUN_SECS', pruntime)
-        set_process_metric_val(pmap, 'PM_OPEN_FDS', pnopenfds)
-        set_process_metric_val(pmap, 'PM_NUM_THREADS', pnthreads)
-        set_process_metric_val(pmap, 'PM_NUM_CTX_SWITCHES_VOL', pnctxsw_vol)
-        set_process_metric_val(pmap, 'PM_NUM_CTX_SWITCHES_INVOL',
-                               pnctxsw_invol)
-        pio = pinfo.get('io_counters', ACCESS_DENIED)
-        if pio != ACCESS_DENIED:
-            set_process_metric_val(pmap, 'PM_BYTES_READ',
-                                   pio.read_bytes)
-            set_process_metric_val(pmap, 'PM_BYTES_WRITE',
-                                   pio.write_bytes)
-        pname = mk_process_name(pname, pid, ppid)
-        return pname, pmap
-    return None, None
+    pname = mk_process_name(pname, pid, ppid)
+    pmap = {}
+    set_process_metric_val(pmap, 'PM_CPU_PCT', pcpupct)
+    set_process_metric_val(pmap, 'PM_MEM_PCT', pmempct)
+    set_process_metric_val(pmap, 'PM_RUN_SECS', pruntime)
+    set_process_metric_val(pmap, 'PM_OPEN_FDS', pnopenfds)
+    set_process_metric_val(pmap, 'PM_NUM_THREADS', pnthreads)
+    set_process_metric_val(pmap, 'PM_NUM_CTX_SWITCHES_VOL', pnctxsw_vol)
+    set_process_metric_val(pmap, 'PM_NUM_CTX_SWITCHES_INVOL',
+                           pnctxsw_invol)
+    pio = pinfo.get('io_counters', ACCESS_DENIED)
+    if pio != ACCESS_DENIED:
+        set_process_metric_val(pmap, 'PM_BYTES_READ',
+                               pio.read_bytes)
+        set_process_metric_val(pmap, 'PM_BYTES_WRITE',
+                               pio.write_bytes)
+    if pruntime >= MIN_RUN_INTERVAL:
+        if pcpupct >= MIN_CPU_USAGE_PERCENT or \
+           pmempct >= MIN_MEM_USAGE_PERCENT:
+            # it is OK again, so un-retire it
+            if retired_procs.get(pname, None):
+                collectd.debug('unretiring %s' % (pname))
+                del retired_procs[pname]
+            return pname,pmap
+        else:
+            # if it has gone below threshold, retire it
+            # for a while
+            ppmap = prev_pmaps.get(pname, None)
+            if ppmap:
+                rp = retired_procs.get(pname, None)
+                if rp:
+                    rp[0] = pmap
+                    rp[1] += 1
+                    # keep it
+                    rp[2] = True
+                else:
+                    collectd.debug('retiring %s' % (pname))
+                    retired_procs[pname] = [pmap, 0, True]
+    return None,None
 
 
 def get_processes_info():
+    global retired_procs
+    global prev_pmaps
+
+    # assume nothing is worth keeping
+    for pv in retired_procs.itervalues():
+        pv[2] = False
     pmaps = {}
     for proc in psutil.process_iter():
         pname, pmap = populate_process_metrics(proc)
         if pname:
             pmaps[pname] = pmap
+    # now reap processes that are too old
+    # and add the rest for display
+    keys = retired_procs.keys()
+    for k in keys:
+        pv = retired_procs[k]
+        if pv[1] >= FLAP_WAIT_COUNT:
+            collectd.debug('retire: wait limit reached for %s' % (k))
+            del retired_procs[k]
+            continue
+        # process not found this time: died?
+        if pv[2] == False:
+            collectd.debug('proc not found: %s, removing from retirement' % (k))
+            del retired_procs[k]
+            continue
+        if pmaps.get(k, None) == None:
+            collectd.debug('showing %s from retirement' % (k))
+            pmaps[k] = pv[0]
     return pmaps
 
 
@@ -200,14 +243,21 @@ def process_watch_init():
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
 
-
 def process_watch_config(conf):
     global MIN_RUN_INTERVAL
     global DEBUG_DO_FILTER_PROCESSES
     global MIN_CPU_USAGE_PERCENT
     global MIN_MEM_USAGE_PERCENT
     global REPORT_DOCKER_CONTAINER_NAMES
+    global SHOW_TOP_N
+    global FLAP_WAIT_COUNT
 
+    MIN_RUN_INTERVAL = 10
+    MIN_CPU_USAGE_PERCENT = 0
+    MIN_MEM_USAGE_PERCENT = 0
+    REPORT_DOCKER_CONTAINER_NAMES = False
+    SHOW_TOP_N = 0
+    FLAP_WAIT_COUNT = 3
     for kv in conf.children:
         if kv.key == 'MinRuntimeSeconds':
             # int() will throw exception if invalid
@@ -242,10 +292,27 @@ def write_metrics(mmaps, plugin_name):
 
 
 def send_metrics():
+    global prev_pmaps
+
+    qualified_procs = []
     pmaps = get_processes_info()
-    write_metrics(pmaps, PLUGIN_NAME)
+    if SHOW_TOP_N > 0:
+        qualified_procs.extend(heapq.nlargest(SHOW_TOP_N, pmaps,
+                        key=lambda k:pmaps[k]['process.cpu.percent'][0]))
+        qualified_procs.extend(heapq.nlargest(SHOW_TOP_N, pmaps,
+                        key=lambda k:pmaps[k]['process.mem.percent'][0]))
+        qualified_procs = set(qualified_procs)
+        pmaps_to_print = {}
+        for proc in qualified_procs:
+            pmaps_to_print[proc] = pmaps[proc]
+    else:
+        pmaps_to_print = pmaps
+    write_metrics(pmaps_to_print, PLUGIN_NAME)
+    prev_pmaps = pmaps
 
 
+retired_procs = {}
+prev_pmaps = {}
 if __name__ != "__main__":
     collectd.register_init(process_watch_init)
     collectd.register_config(process_watch_config)
@@ -256,6 +323,8 @@ else:
     MIN_CPU_USAGE_PERCENT = 0
     MIN_MEM_USAGE_PERCENT = 0
     REPORT_DOCKER_CONTAINER_NAMES = True
+    SHOW_TOP_N = 0
+    FLAP_WAIT_COUNT = 3
     send_metrics()
     if len(sys.argv) < 2:
         while True:
