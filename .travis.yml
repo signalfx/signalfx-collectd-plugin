@@ -8,6 +8,6 @@ python:
 install:
   pip install -r requirements.txt && pip install flake8
 before_script: 
-  flake8 src/signalfx_metadata.py src/collectd_ps_plugin.py
+  flake8 src/*.py
 script: 
   for x in src/*.py; do python $x once; done

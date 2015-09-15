@@ -13,6 +13,8 @@ import platform
 import signal
 import subprocess
 import time
+import binascii
+import zlib
 
 import requests
 
@@ -27,11 +29,35 @@ TIMEOUT = 10
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
 VERSION = "0.0.2"
 NOTIFY_LEVEL = -1
-TYPE_INSTANCE = "host-meta-data"
+HOST_TYPE_INSTANCE = "host-meta-data"
+TOP_TYPE_INSTANCE = "top-info"
 TYPE = "objects"
 FIRST = True
 AWS = True
 INTERVAL = 10
+LAST = 0
+FUDGE = 0.1  # fudge to check intervals
+
+
+class LargeNotif:
+    """
+    Used because the Python plugin supplied notification does not provide
+    us with enough space
+    """
+    host = platform.node()
+    message = ""
+    plugin = PLUGIN_NAME
+    plugin_instance = ""
+    severity = 4
+    time = 0
+    type = TYPE
+    type_instance = ""
+
+    def __repr__(self):
+        return 'PUTNOTIF %s/%s-%s/%s-%s %s' % (self.host, self.plugin,
+                                               self.plugin_instance,
+                                               self.type, self.type_instance,
+                                               self.message)
 
 
 def log(param):
@@ -70,6 +96,9 @@ def plugin_config(conf):
         elif kv.key == 'Timeout':
             global TIMEOUT
             TIMEOUT = int(kv.values[0])
+        elif kv.key == 'Interval':
+            global INTERVAL
+            INTERVAL = int(kv.values[0])
         elif kv.key == 'NotifyLevel':
             global NOTIFY_LEVEL
             if string.lower(kv.values[0]) == "okay":
@@ -84,13 +113,21 @@ def plugin_config(conf):
 
 def send():
     """
-    Send proof-of-life datapoint and notifications
+    Send proof-of-life datapoint, top, and notifications if interval elapsed
 
     Don't send any meta-information on first run just datapoint.
     This removes the race condition that could possibly exist with the host
     dimensions existing
     """
+    global LAST
+    diff = time.time() - LAST + FUDGE
+    if diff < INTERVAL:
+        log("interval not expired %s" % str(diff))
+        return
+
+    LAST = time.time()
     send_datapoint()
+    send_top()
 
     global FIRST
     if FIRST:
@@ -240,7 +277,8 @@ def get_collectd_version(host_info={}):
     try:
         pid = os.getpid()
         output = popen(["/proc/%d/exe" % pid, "-h"])
-        regexed = re.search("collectd (.*), http://collectd.org/", output)
+        regexed = re.search("collectd (.*), http://collectd.org/",
+                            output.decode())
         if regexed:
             host_info["collectd_version"] = regexed.groups()[0]
     except Exception as e:
@@ -263,6 +301,54 @@ def get_linux_version(host_info={}):
     except:
         log("not a supported version of linux")
     return host_info
+
+
+def send_top():
+    """
+    Parse top
+    filter out any zeros and common values to save space send it directly
+    without going through collectd mechanisms because it is too large
+    """
+    response = {}
+    p1 = subprocess.Popen(["top", "-b", "-n1"], stdout=subprocess.PIPE)
+    # filter ansi escape sequences
+    p2 = subprocess.Popen(["sed", "-r",
+                           "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g"],
+                          stdin=p1.stdout, stdout=subprocess.PIPE)
+    top_raw = p2.communicate()[0].strip()
+
+    read = False
+    top_raw = top_raw.decode()
+    for line in top_raw.split("\n"):
+        pieces = line.strip().split()
+        if len(pieces) < 12:
+            continue
+        if pieces[0] == 'PID':
+            read = True
+            continue
+        if not read:
+            continue
+        response[int(pieces[0])] = [
+            pieces[1],  # user
+            pieces[2],  # priority
+            int(pieces[3]),  # nice value
+            pieces[4],  # virtual memory size (KiB)
+            pieces[5],  # resident memory size (KiB)
+            pieces[6],  # shared memory size (KiB)
+            pieces[7],  # process status
+            float(pieces[8]),  # % cpu
+            float(pieces[9]),  # % mem
+            pieces[10],  # cpu time in hundredths
+            " ".join(pieces[11:len(pieces) - 1]),  # command
+        ]
+    s = json.dumps(response, separators=(',', ':'))
+    compressed = zlib.compress(s.encode("utf-8"))
+    base64 = binascii.b2a_base64(compressed)
+    notif = LargeNotif()
+    notif.plugin_instance = "top-info"
+    notif.message = base64
+    notif.type_instance = TOP_TYPE_INSTANCE
+    receive_notifications(notif)
 
 
 def get_host_info():
@@ -322,22 +408,21 @@ def send_datapoint():
     putval("", "sf.host-uptime", [get_uptime(), "gauge"])
 
 
-def putnotif(property_name, message):
+def putnotif(property_name, message, plugin_name=PLUGIN_NAME,
+             type_instance=HOST_TYPE_INSTANCE, type=TYPE):
     """Create collectd notification"""
-
     if __name__ != "__main__":
-        notif = collectd.Notification(plugin=PLUGIN_NAME,
+        notif = collectd.Notification(plugin=plugin_name,
                                       plugin_instance=property_name,
-                                      type_instance=TYPE_INSTANCE,
-                                      type=TYPE)
+                                      type_instance=type_instance,
+                                      type=type)
         notif.severity = 4  # OKAY
         notif.message = message
         notif.dispatch()
-
     else:
         h = platform.node()
-        print('PUTNOTIF %s/%s-%s/%s-%s %s' % (h, PLUGIN_NAME, property_name,
-                                              TYPE, TYPE_INSTANCE, message))
+        print('PUTNOTIF %s/%s-%s/%s-%s %s' % (h, plugin_name, property_name,
+                                              type, type_instance, message))
 
 
 def write_notifications(host_info):
@@ -365,6 +450,7 @@ def send_notifications():
 
 
 def get_severity(severity_int):
+    """helper meethod to swap severities"""
     return {
         1: "FAILURE",
         2: "WARNING",
@@ -379,18 +465,33 @@ def receive_notifications(notif):
     Only send notifications created by other plugs which are above or equal
     the configured NotifyLevel.
     """
+    if not notif:
+        return
+
+    if __name__ == "__main__":
+        log(notif)
+        return
+
+    if not API_TOKEN:
+        return
+
     notif_dict = {}
     # because collectd c->python is a bit limited and lacks __dict__
     for x in ['host', 'message', 'plugin', 'plugin_instance', 'severity',
               'time', 'type', 'type_instance']:
-        notif_dict[x] = notif.__getattribute__(x)
+        notif_dict[x] = getattr(notif, x, "")
 
     # emit notifications that are ours, or satisfy the notify level
     if notif_dict['plugin'] != PLUGIN_NAME and notif_dict['type'] != TYPE \
-            and notif_dict['type_instance'] != TYPE_INSTANCE \
+            and notif_dict['type_instance'] not in [HOST_TYPE_INSTANCE, TOP_TYPE_INSTANCE] \
             and notif_dict["severity"] > NOTIFY_LEVEL:
-        log(notif_dict)
+        log("event ignored: " + str(notif_dict))
         return
+
+    if not notif_dict["time"]:
+        notif_dict["time"] = time.time()
+    if not notif_dict["host"]:
+        notif_dict["host"] = platform.node()
 
     notif_dict["severity"] = get_severity(notif_dict["severity"])
     data = json.dumps([notif_dict])
@@ -400,7 +501,7 @@ def receive_notifications(notif):
     req = requests.post(POST_URL, data=data, headers=headers, timeout=TIMEOUT)
     sys.stdout.write(req.text.strip())
     if not req.ok:
-        log("unsuccessful response: %s" % req.txt)
+        log("unsuccessful code: %d response: %s" % (req.status_code, req.text))
 
 
 def restore_sigchld():
@@ -426,8 +527,8 @@ else:
     # outside plugin just collect the info
     restore_sigchld()
     send()
-    sys.stderr.write(json.dumps(get_host_info(), sort_keys=True,
-                                indent=4, separators=(',', ': ')))
+    log(json.dumps(get_host_info(), sort_keys=True,
+                   indent=4, separators=(',', ': ')))
     if len(sys.argv) < 2:
         while True:
             time.sleep(INTERVAL)
