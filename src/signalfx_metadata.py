@@ -14,7 +14,8 @@ import signal
 import subprocess
 import time
 import binascii
-import zlib
+import StringIO
+import gzip
 
 import requests
 
@@ -27,13 +28,14 @@ METADATA = {}
 API_TOKEN = ""
 TIMEOUT = 10
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.2"
+VERSION = "0.0.3"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
 TYPE = "objects"
 FIRST = True
 AWS = True
+PROCESS_INFO = True
 INTERVAL = 10
 LAST = 0
 FUDGE = 0.1  # fudge to check intervals
@@ -74,6 +76,8 @@ def plugin_config(conf):
       https://collectd.org/documentation/manpages/collectd-python.5.shtml#config
 
     Parse the config object for config parameters:
+      ProcessInfo: true or false, whether or not to collect process
+        information. Default is true.
       Notifications: true or false, whether or not to emit notifications
       if Notifications is true:
         URL: where to POST the notifications to
@@ -87,6 +91,10 @@ def plugin_config(conf):
         if kv.key == 'Notifications':
             if kv.values[0]:
                 collectd.register_notification(receive_notifications)
+        elif kv.key == 'ProcessInfo':
+            if kv.values[0]:
+                global PROCESS_INFO
+                PROCESS_INFO = True
         elif kv.key == 'URL':
             global POST_URL
             POST_URL = kv.values[0]
@@ -305,11 +313,15 @@ def get_linux_version(host_info={}):
 
 def send_top():
     """
-    Parse top
+    Parse top unless told not to
     filter out any zeros and common values to save space send it directly
     without going through collectd mechanisms because it is too large
     """
-    response = {}
+    if not PROCESS_INFO:
+        return
+
+    top = {}
+    response = {"v": VERSION, "t": top}  # send version up with the values
     p1 = subprocess.Popen(["top", "-b", "-n1"], stdout=subprocess.PIPE)
     # filter ansi escape sequences
     p2 = subprocess.Popen(["sed", "-r",
@@ -328,24 +340,29 @@ def send_top():
             continue
         if not read:
             continue
-        response[int(pieces[0])] = [
+        top[int(pieces[0])] = [
             pieces[1],  # user
             pieces[2],  # priority
-            int(pieces[3]),  # nice value
-            pieces[4],  # virtual memory size (KiB)
-            pieces[5],  # resident memory size (KiB)
-            pieces[6],  # shared memory size (KiB)
+            pieces[3],  # nice value, could be int
+            pieces[4],  # virtual memory size (KiB) can contain letters like G
+            pieces[5],  # resident memory size (KiB) can contain letters like G
+            pieces[6],  # shared memory size (KiB) can contain letters like G
             pieces[7],  # process status
-            float(pieces[8]),  # % cpu
-            float(pieces[9]),  # % mem
+            pieces[8],  # % cpu, could be float
+            pieces[9],  # % mem, could be float
             pieces[10],  # cpu time in hundredths
             " ".join(pieces[11:len(pieces) - 1]),  # command
         ]
     s = json.dumps(response, separators=(',', ':'))
-    compressed = zlib.compress(s.encode("utf-8"))
+    # compressed = zlib.compress(s.encode("utf-8"))
+
+    out = StringIO.StringIO()
+    with gzip.GzipFile(fileobj=out, mode="w") as f:
+        f.write(s)
+    compressed = out.getvalue()
     base64 = binascii.b2a_base64(compressed)
     notif = LargeNotif()
-    notif.plugin_instance = "top-info"
+    notif.plugin_instance = TOP_TYPE_INSTANCE
     notif.message = base64
     notif.type_instance = TOP_TYPE_INSTANCE
     receive_notifications(notif)
