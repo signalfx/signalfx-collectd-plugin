@@ -23,6 +23,7 @@ LoadPlugin python
 
 For metadata:
 
+* ProcessInfo: do we want to collect process information, true or false. Default is true.
 * Notifications: do we want to emit notifications from the plugin true or false. Default is false.
   Note, the plugin will send it's own metadata as events in addition to this.
 * URL: where to emit notifications via json to. The example url is the default.
