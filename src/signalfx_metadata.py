@@ -27,13 +27,14 @@ METADATA = {}
 API_TOKEN = ""
 TIMEOUT = 10
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.2"
+VERSION = "0.0.3"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
 TYPE = "objects"
 FIRST = True
 AWS = True
+PROCESS_INFO = True
 INTERVAL = 10
 LAST = 0
 FUDGE = 0.1  # fudge to check intervals
@@ -74,6 +75,8 @@ def plugin_config(conf):
       https://collectd.org/documentation/manpages/collectd-python.5.shtml#config
 
     Parse the config object for config parameters:
+      ProcessInfo: true or false, whether or not to collect process
+        information. Default is true.
       Notifications: true or false, whether or not to emit notifications
       if Notifications is true:
         URL: where to POST the notifications to
@@ -87,6 +90,10 @@ def plugin_config(conf):
         if kv.key == 'Notifications':
             if kv.values[0]:
                 collectd.register_notification(receive_notifications)
+        elif kv.key == 'ProcessInfo':
+            if kv.values[0]:
+                global PROCESS_INFO
+                PROCESS_INFO = True
         elif kv.key == 'URL':
             global POST_URL
             POST_URL = kv.values[0]
@@ -303,50 +310,94 @@ def get_linux_version(host_info={}):
     return host_info
 
 
+def parseBytes(possible_bytes):
+    """bytes can be compressed with suffixes but we want real numbers in kb"""
+    try:
+        return int(possible_bytes)
+    except:
+        if possible_bytes[-1].lower() == 'm':
+            return int(float(possible_bytes[:-1]) * 1024)
+        if possible_bytes[-1].lower() == 'g':
+            return int(float(possible_bytes[:-1]) * 1024 ** 2)
+        if possible_bytes[-1].lower() == 't':
+            return int(float(possible_bytes[:-1]) * 1024 ** 3)
+        if possible_bytes[-1].lower() == 'p':
+            return int(float(possible_bytes[:-1]) * 1024 ** 4)
+        if possible_bytes[-1].lower() == 'e':
+            return int(float(possible_bytes[:-1]) * 1024 ** 5)
+
+
+def parsePriority(priority):
+    """
+    priority can sometimes be "rt" for real time, make that 99, the highest
+    """
+    try:
+        return int(priority)
+    except:
+        return 99
+
+
 def send_top():
     """
-    Parse top
+    Parse top unless told not to
     filter out any zeros and common values to save space send it directly
     without going through collectd mechanisms because it is too large
     """
-    response = {}
-    p1 = subprocess.Popen(["top", "-b", "-n1"], stdout=subprocess.PIPE)
-    # filter ansi escape sequences
-    p2 = subprocess.Popen(["sed", "-r",
-                           "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g"],
-                          stdin=p1.stdout, stdout=subprocess.PIPE)
-    top_raw = p2.communicate()[0].strip()
+    if not PROCESS_INFO:
+        return
 
-    read = False
-    top_raw = top_raw.decode()
-    for line in top_raw.split("\n"):
-        pieces = line.strip().split()
-        if len(pieces) < 12:
-            continue
-        if pieces[0] == 'PID':
-            read = True
-            continue
-        if not read:
-            continue
-        response[int(pieces[0])] = [
-            pieces[1],  # user
-            pieces[2],  # priority
-            int(pieces[3]),  # nice value
-            pieces[4],  # virtual memory size (KiB)
-            pieces[5],  # resident memory size (KiB)
-            pieces[6],  # shared memory size (KiB)
-            pieces[7],  # process status
-            float(pieces[8]),  # % cpu
-            float(pieces[9]),  # % mem
-            pieces[10],  # cpu time in hundredths
-            " ".join(pieces[11:len(pieces) - 1]),  # command
-        ]
-    s = json.dumps(response, separators=(',', ':'))
-    compressed = zlib.compress(s.encode("utf-8"))
-    base64 = binascii.b2a_base64(compressed)
-    notif = LargeNotif()
-    notif.plugin_instance = "top-info"
-    notif.message = base64
+    # send version up with the values
+    response = {"v": VERSION}
+    try:
+        topversion = popen(["top", "-h"]).strip().decode("utf-8")
+        splitted = topversion.split("\n")[0]
+        response["top"] = splitted
+        top = {}
+        p1 = subprocess.Popen(["top", "-b", "-n1", "-c", "-w1024"],
+                              stdout=subprocess.PIPE)
+        # filter ansi escape sequences
+        p2 = subprocess.Popen(["sed", "-r",
+                               "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g"],
+                              stdin=p1.stdout, stdout=subprocess.PIPE)
+        top_raw = p2.communicate()[0].strip()
+
+        read = False
+        top_raw = top_raw.decode()
+        for line in top_raw.split("\n"):
+            pieces = line.strip().split()
+            if len(pieces) < 12:
+                continue
+            if pieces[0] == 'PID':
+                read = True
+                continue
+            if not read:
+                continue
+            top[int(pieces[0])] = [
+                pieces[1],  # user
+                parsePriority(pieces[2]),  # priority
+                int(pieces[3]),  # nice value, numerical
+                parseBytes(pieces[4]),  # virtual memory size in kb int
+                parseBytes(pieces[5]),  # resident memory size in kb int
+                parseBytes(pieces[6]),  # shared memory size in kb int
+                pieces[7],  # process status
+                float(pieces[8]),  # % cpu, float
+                float(pieces[9]),  # % mem, float
+                pieces[10],  # cpu time in hundredths
+                " ".join(pieces[11:]),  # command
+            ]
+        s = json.dumps(top, separators=(',', ':'))
+        compressed = zlib.compress(s.encode("utf-8"))
+        base64 = binascii.b2a_base64(compressed)
+        notif = LargeNotif()
+        notif.plugin_instance = TOP_TYPE_INSTANCE
+        response["t"] = base64.decode("utf-8")
+    except:
+        msg = str(sys.exc_info()[0])
+        log("error occurred parsing top: %s" % msg)
+        response["error"] = msg
+
+    top_json = json.dumps(response, separators=(',', ':'))
+    notif.message = top_json
     notif.type_instance = TOP_TYPE_INSTANCE
     receive_notifications(notif)
 
