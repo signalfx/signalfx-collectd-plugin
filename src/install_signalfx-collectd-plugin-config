@@ -1,0 +1,19 @@
+# Variable
+token=$1
+signalfx_collectd_config="20-signalfx_collectd-plugin.conf"
+
+# Finding the collectd config & managed_config directory
+COLLECTD_CONFIG=$(collectd version | grep 'Config file' | awk '{ print $3; }')
+COLLECTD_CONF_DIR=$(dirname "${COLLECTD_CONFIG}")
+COLLECTD_MANAGED_CONFIG_DIR=${COLLECTD_CONF_DIR}/managed_config
+
+# Stopping collectd
+service collectd stop
+
+# Downloading the signalfx-collectd-plugin config file to the managed_config directory
+wget -P $COLLECTD_MANAGED_CONFIG_DIR https://raw.githubusercontent.com/signalfx/signalfx-collectd-plugin/master/src/$signalfx_collectd_config
+sed -i '' "s/\<INSERT_TOKEN_HERE\>/$token/g" $COLLECTD_MANAGED_CONFIG_DIR/$signalfx_collectd_config 
+
+# Starting collectd
+service collectd start
+
