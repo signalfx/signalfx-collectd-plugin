@@ -5,6 +5,9 @@ Placeholder changes in the oldest release exist only to document which
 subsections are relevant.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.0.4] - 2015-09-20
+- Top on amazon linux and better error handling
+
 ## [0.0.3] - 2015-09-20
 - Changed format of top-info payload to include version
 - Added ability to turn off process table collection

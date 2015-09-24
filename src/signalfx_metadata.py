@@ -27,7 +27,7 @@ METADATA = {}
 API_TOKEN = ""
 TIMEOUT = 10
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.3"
+VERSION = "0.0.4"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
@@ -306,7 +306,7 @@ def get_linux_version(host_info={}):
                     host_info["linux_version"] = regexed.groups()[0]
                     break
     except:
-        log("not a supported version of linux")
+        host_info["linux_version"] = "UNKNOWN"
     return host_info
 
 
@@ -348,13 +348,17 @@ def send_top():
 
     # send version up with the values
     response = {"v": VERSION}
+    notif = LargeNotif()
     try:
         topversion = popen(["top", "-h"]).strip().decode("utf-8")
         splitted = topversion.split("\n")[0]
+        cmd = ["top", "-b", "-n1", "-c"]
         response["top"] = splitted
+        # only ng has width
+        if "procps-ng" in splitted:
+            cmd.append("-w1024")
         top = {}
-        p1 = subprocess.Popen(["top", "-b", "-n1", "-c", "-w1024"],
-                              stdout=subprocess.PIPE)
+        p1 = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         # filter ansi escape sequences
         p2 = subprocess.Popen(["sed", "-r",
                                "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g"],
@@ -388,7 +392,6 @@ def send_top():
         s = json.dumps(top, separators=(',', ':'))
         compressed = zlib.compress(s.encode("utf-8"))
         base64 = binascii.b2a_base64(compressed)
-        notif = LargeNotif()
         notif.plugin_instance = TOP_TYPE_INSTANCE
         response["t"] = base64.decode("utf-8")
     except:
