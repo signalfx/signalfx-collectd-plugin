@@ -401,6 +401,16 @@ def send_top():
     receive_notifications(notif)
 
 
+def get_memory(host_info):
+    """get total physical memory for machine"""
+    with open("/proc/meminfo") as f:
+        pieces = f.readline()
+        _, mem_total, _ = pieces.split()
+        host_info["mem_total"] = mem_total
+
+    return host_info
+
+
 def get_host_info():
     """ aggregate all host info """
     host_info = get_interfaces({})
@@ -409,6 +419,7 @@ def get_host_info():
     get_aws_info(host_info)
     get_collectd_version(host_info)
     get_linux_version(host_info)
+    get_memory(host_info)
     host_info["metadata_version"] = VERSION
     return host_info
 
