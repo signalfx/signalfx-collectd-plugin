@@ -5,6 +5,9 @@ Placeholder changes in the oldest release exist only to document which
 subsections are relevant.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.0.5] - 2015-09-25
+- Use host from collectd for Top Info notification
+
 ## [0.0.4] - 2015-09-20
 - Top on amazon linux and better error handling
 
