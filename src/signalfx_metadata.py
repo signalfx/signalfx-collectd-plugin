@@ -38,6 +38,7 @@ PROCESS_INFO = True
 INTERVAL = 10
 LAST = 0
 FUDGE = 0.1  # fudge to check intervals
+HOST = ""
 
 
 class LargeNotif:
@@ -45,7 +46,7 @@ class LargeNotif:
     Used because the Python plugin supplied notification does not provide
     us with enough space
     """
-    host = platform.node()
+    host = ""
     message = ""
     plugin = PLUGIN_NAME
     plugin_instance = ""
@@ -133,15 +134,9 @@ def send():
         return
 
     LAST = time.time()
+    send_notifications()
     send_datapoint()
     send_top()
-
-    global FIRST
-    if FIRST:
-        FIRST = False
-        return
-
-    send_notifications()
 
 
 def all_interfaces():
@@ -310,7 +305,7 @@ def get_linux_version(host_info={}):
     return host_info
 
 
-def parseBytes(possible_bytes):
+def parse_bytes(possible_bytes):
     """bytes can be compressed with suffixes but we want real numbers in kb"""
     try:
         return int(possible_bytes)
@@ -327,7 +322,7 @@ def parseBytes(possible_bytes):
             return int(float(possible_bytes[:-1]) * 1024 ** 5)
 
 
-def parsePriority(priority):
+def parse_priority(priority):
     """
     priority can sometimes be "rt" for real time, make that 99, the highest
     """
@@ -378,11 +373,11 @@ def send_top():
                 continue
             top[int(pieces[0])] = [
                 pieces[1],  # user
-                parsePriority(pieces[2]),  # priority
+                parse_priority(pieces[2]),  # priority
                 int(pieces[3]),  # nice value, numerical
-                parseBytes(pieces[4]),  # virtual memory size in kb int
-                parseBytes(pieces[5]),  # resident memory size in kb int
-                parseBytes(pieces[6]),  # shared memory size in kb int
+                parse_bytes(pieces[4]),  # virtual memory size in kb int
+                parse_bytes(pieces[5]),  # resident memory size in kb int
+                parse_bytes(pieces[6]),  # shared memory size in kb int
                 pieces[7],  # process status
                 float(pieces[8]),  # % cpu, float
                 float(pieces[9]),  # % mem, float
@@ -401,6 +396,7 @@ def send_top():
 
     top_json = json.dumps(response, separators=(',', ':'))
     notif.message = top_json
+    notif.host = HOST
     notif.type_instance = TOP_TYPE_INSTANCE
     receive_notifications(notif)
 
@@ -417,7 +413,7 @@ def get_host_info():
     return host_info
 
 
-def mapdiff(host_info, old_host_info):
+def map_diff(host_info, old_host_info):
     """
     diff old and new host_info for additions of modifications
     don't look for removals as they will likely be spurious
@@ -431,7 +427,7 @@ def mapdiff(host_info, old_host_info):
     return diff
 
 
-def putval(pname, metric, val):
+def put_val(pname, metric, val):
     """Create collectd metric"""
 
     if __name__ != "__main__":
@@ -459,7 +455,7 @@ def get_uptime():
 
 def send_datapoint():
     """write proof-of-life datapoint"""
-    putval("", "sf.host-uptime", [get_uptime(), "gauge"])
+    put_val("", "sf.host-uptime", [get_uptime(), "gauge"])
 
 
 def putnotif(property_name, message, plugin_name=PLUGIN_NAME,
@@ -498,7 +494,7 @@ def send_notifications():
     if METADATA_HASH != host_hash:
         METADATA_HASH = host_hash
         if old_host_info:
-            host_info = mapdiff(host_info, old_host_info)
+            host_info = map_diff(host_info, old_host_info)
 
         write_notifications(host_info)
 
@@ -525,6 +521,14 @@ def receive_notifications(notif):
     if __name__ == "__main__":
         log(notif)
         return
+
+    # we send our own notifications but we don't have access to collectd's
+    # "host" from collectd.conf steal it from notifications we've put on the
+    # bus so we can use it for our own
+    global HOST
+    if not HOST and notif.host:
+        HOST = notif.host
+        log("found host " + HOST)
 
     if not API_TOKEN:
         return
