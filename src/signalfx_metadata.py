@@ -27,7 +27,7 @@ METADATA = {}
 API_TOKEN = ""
 TIMEOUT = 10
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.5"
+VERSION = "0.0.6"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
@@ -54,6 +54,12 @@ class LargeNotif:
     time = 0
     type = TYPE
     type_instance = ""
+
+    def __init__(self, message, type_instance="", plugin_instance=""):
+        self.plugin_instance = plugin_instance
+        self.type_instance = type_instance
+        self.message = message
+        self.host = HOST
 
     def __repr__(self):
         return 'PUTNOTIF %s/%s-%s/%s-%s %s' % (self.host, self.plugin,
@@ -119,6 +125,10 @@ def plugin_config(conf):
             raise Exception("unknown config parameter '%s'" % kv.key)
 
 
+def compact(thing):
+    return json.dumps(thing, separators=(',', ':'))
+
+
 def send():
     """
     Send proof-of-life datapoint, top, and notifications if interval elapsed
@@ -176,12 +186,13 @@ def all_interfaces():
 
 def get_interfaces(host_info={}):
     """populate host_info with the ipaddress and fqdn for each interface"""
+    interfaces = {}
     for interface, ipaddress in all_interfaces():
         if ipaddress == "127.0.0.1":
             continue
-        host_info["ipaddress_" + interface] = ipaddress
-        host_info["fqdn_" + interface] = socket.getfqdn(ipaddress)
-    return host_info
+        interfaces[interface] = \
+            (ipaddress, socket.getfqdn(ipaddress))
+    host_info["sf_host_interfaces"] = compact(interfaces)
 
 
 def get_cpu_info(host_info={}):
@@ -189,7 +200,6 @@ def get_cpu_info(host_info={}):
     with open("/proc/cpuinfo") as f:
         nb_cpu = 0
         nb_cores = 0
-        nb_units = 0
         for p in f.readlines():
             if ':' in p:
                 x, y = map(lambda x: x.strip(), p.split(':', 1))
@@ -199,18 +209,13 @@ def get_cpu_info(host_info={}):
                 if x.startswith("cpu cores"):
                     if nb_cores < int(y):
                         nb_cores = int(y)
-                if x.startswith("processor"):
-                    if nb_units < int(y):
-                        nb_units = int(y)
                 if x.startswith("model name"):
                     model = y
 
         nb_cpu += 1
-        nb_units += 1
-        host_info["cpu_model"] = model
-        host_info["physical_cpus"] = str(nb_cpu)
-        host_info["cpu_cores"] = str(nb_cores)
-        host_info["logical_cpus"] = str(nb_units)
+        host_info["host_cpu_model"] = model
+        host_info["host_physical_cpus"] = str(nb_cpu)
+        host_info["host_cpu_cores"] = str(nb_cores)
 
     return host_info
 
@@ -221,11 +226,11 @@ def get_kernel_info(host_info={}):
     call above to work on python 2.6
     """
     try:
-        host_info["kernel_name"] = platform.system()
-        host_info["kernel_release"] = platform.release()
-        host_info["kernel_version"] = platform.version()
-        host_info["machine"] = platform.machine()
-        host_info["processor"] = platform.processor()
+        host_info["host_kernel_name"] = platform.system()
+        host_info["host_kernel_release"] = platform.release()
+        host_info["host_kernel_version"] = platform.version()
+        host_info["host_machine"] = platform.machine()
+        host_info["host_processor"] = platform.processor()
     except:
         log("still seeing exception in platform module")
 
@@ -275,14 +280,14 @@ def get_collectd_version(host_info={}):
     exec the pid (which will be collectd) with help and parse the help
     message for the version information
     """
-    host_info["collectd_version"] = "UNKNOWN"
+    host_info["host_collectd_version"] = "UNKNOWN"
     try:
         pid = os.getpid()
         output = popen(["/proc/%d/exe" % pid, "-h"])
         regexed = re.search("collectd (.*), http://collectd.org/",
                             output.decode())
         if regexed:
-            host_info["collectd_version"] = regexed.groups()[0]
+            host_info["host_collectd_version"] = regexed.groups()[0]
     except Exception as e:
         log("trying to parse collectd version failed %s" % e)
 
@@ -298,10 +303,18 @@ def get_linux_version(host_info={}):
             for line in f.readlines():
                 regexed = re.search('DISTRIB_DESCRIPTION="(.*)"', line)
                 if regexed:
-                    host_info["linux_version"] = regexed.groups()[0]
+                    host_info["host_linux_version"] = regexed.groups()[0]
                     break
     except:
-        host_info["linux_version"] = "UNKNOWN"
+        try:
+            with open("/etc/os-release") as f:
+                for line in f.readlines():
+                    regexed = re.search('PRETTY_NAME="(.*)"', line)
+                    if regexed:
+                        host_info["host_linux_version"] = regexed.groups()[0]
+                        break
+        except:
+            host_info["host_linux_version"] = "UNKNOWN"
     return host_info
 
 
@@ -343,7 +356,6 @@ def send_top():
 
     # send version up with the values
     response = {"v": VERSION}
-    notif = LargeNotif()
     try:
         topversion = popen(["top", "-h"]).strip().decode("utf-8")
         splitted = topversion.split("\n")[0]
@@ -384,20 +396,17 @@ def send_top():
                 pieces[10],  # cpu time in hundredths
                 " ".join(pieces[11:]),  # command
             ]
-        s = json.dumps(top, separators=(',', ':'))
+        s = compact(top)
         compressed = zlib.compress(s.encode("utf-8"))
         base64 = binascii.b2a_base64(compressed)
-        notif.plugin_instance = TOP_TYPE_INSTANCE
         response["t"] = base64.decode("utf-8")
     except:
         msg = str(sys.exc_info()[0])
         log("error occurred parsing top: %s" % msg)
         response["error"] = msg
 
-    top_json = json.dumps(response, separators=(',', ':'))
-    notif.message = top_json
-    notif.host = HOST
-    notif.type_instance = TOP_TYPE_INSTANCE
+    response_json = compact(response)
+    notif = LargeNotif(response_json, TOP_TYPE_INSTANCE, TOP_TYPE_INSTANCE)
     receive_notifications(notif)
 
 
@@ -406,21 +415,21 @@ def get_memory(host_info):
     with open("/proc/meminfo") as f:
         pieces = f.readline()
         _, mem_total, _ = pieces.split()
-        host_info["mem_total"] = mem_total
+        host_info["host_mem_total"] = mem_total
 
     return host_info
 
 
 def get_host_info():
     """ aggregate all host info """
-    host_info = get_interfaces({})
+    host_info = {"host_metadata_version": VERSION}
     get_cpu_info(host_info)
     get_kernel_info(host_info)
     get_aws_info(host_info)
     get_collectd_version(host_info)
     get_linux_version(host_info)
     get_memory(host_info)
-    host_info["metadata_version"] = VERSION
+    get_interfaces(host_info)
     return host_info
 
 
@@ -489,7 +498,12 @@ def putnotif(property_name, message, plugin_name=PLUGIN_NAME,
 def write_notifications(host_info):
     """emit any new notifications"""
     for property_name, property_value in iter(host_info.items()):
-        putnotif(property_name, property_value)
+        if len(property_value) > 255:
+            receive_notifications(LargeNotif(property_value,
+                                             HOST_TYPE_INSTANCE,
+                                             property_name))
+        else:
+            putnotif(property_name, property_value)
 
 
 def send_notifications():
@@ -560,10 +574,14 @@ def receive_notifications(notif):
     if not notif_dict["time"]:
         notif_dict["time"] = time.time()
     if not notif_dict["host"]:
-        notif_dict["host"] = platform.node()
+        if HOST:
+            notif_dict["host"] = HOST
+        else:
+            notif_dict["host"] = platform.node()
+        log("no host info, setting to " + notif_dict["host"])
 
     notif_dict["severity"] = get_severity(notif_dict["severity"])
-    data = json.dumps([notif_dict])
+    data = compact([notif_dict])
     headers = {"Content-Type": "application/json"}
     if API_TOKEN != "":
         headers["X-SF-TOKEN"] = API_TOKEN
