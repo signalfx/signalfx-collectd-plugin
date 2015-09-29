@@ -1,6 +1,5 @@
 #!/usr/bin/python
 
-import json
 import fcntl
 import array
 import os
@@ -16,7 +15,21 @@ import time
 import binascii
 import zlib
 
-import requests
+try:
+    import urllib.request as urllib2
+except ImportError:
+    import urllib2
+
+try:
+    import json
+except ImportError:
+    import simplejson as json
+
+try:
+    str.decode("ami3?")
+    bytes = str
+except:
+    pass
 
 if __name__ != '__main__':
     import collectd
@@ -27,7 +40,7 @@ METADATA = {}
 API_TOKEN = ""
 TIMEOUT = 10
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.6"
+VERSION = "0.0.7"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
@@ -156,8 +169,10 @@ def all_interfaces():
 
     :return: all ip addresses by interface
     """
-    is_64bits = sys.maxsize > 2 ** 32
-    struct_size = 40 if is_64bits else 32
+    is_64bits = struct.calcsize("P") == 8
+    struct_size = 32
+    if is_64bits:
+        struct_size = 40
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     max_possible = 8  # initial value
     while True:
@@ -197,7 +212,8 @@ def get_interfaces(host_info={}):
 
 def get_cpu_info(host_info={}):
     """populate host_info with cpu information"""
-    with open("/proc/cpuinfo") as f:
+    try:
+        f = open("/proc/cpuinfo")
         nb_cpu = 0
         nb_cores = 0
         for p in f.readlines():
@@ -216,6 +232,11 @@ def get_cpu_info(host_info={}):
         host_info["host_cpu_model"] = model
         host_info["host_physical_cpus"] = str(nb_cpu)
         host_info["host_cpu_cores"] = str(nb_cores)
+    finally:
+        try:
+            f.close()
+        except:
+            pass
 
     return host_info
 
@@ -248,20 +269,20 @@ def get_aws_info(host_info={}):
 
     url = "http://169.254.169.254/latest/dynamic/instance-identity/document"
     try:
-        response = requests.get(url, timeout=0.1)
-        if response.ok:
-            identity = json.loads(response.text)
-            want = {
-                'availability_zone': 'availabilityZone',
-                'instance_type': 'instanceType',
-                'instance_id': 'instanceId',
-                'image_id': 'imageId',
-                'account_id': 'accountId',
-                'region': 'region',
-                'architecture': 'architecture',
-            }
-            for k, v in iter(want.items()):
-                host_info["aws_" + k] = identity[v]
+        req = urllib2.Request(url)
+        response = urllib2.urlopen(req, timeout=0.1)
+        identity = json.loads(response.read())
+        want = {
+            'availability_zone': 'availabilityZone',
+            'instance_type': 'instanceType',
+            'instance_id': 'instanceId',
+            'image_id': 'imageId',
+            'account_id': 'accountId',
+            'region': 'region',
+            'architecture': 'architecture',
+        }
+        for k, v in iter(want.items()):
+            host_info["aws_" + k] = identity[v]
     except:
         log("not an aws box")
         AWS = False
@@ -288,7 +309,8 @@ def get_collectd_version(host_info={}):
                             output.decode())
         if regexed:
             host_info["host_collectd_version"] = regexed.groups()[0]
-    except Exception as e:
+    except Exception:
+        t, e = sys.exc_info()[:2]
         log("trying to parse collectd version failed %s" % e)
 
     return host_info
@@ -299,22 +321,32 @@ def get_linux_version(host_info={}):
     read /etc/lsb-release file for the version information
     """
     try:
-        with open("/etc/lsb-release") as f:
+        f = open("/etc/lsb-release")
+        for line in f.readlines():
+            regexed = re.search('DISTRIB_DESCRIPTION="(.*)"', line)
+            if regexed:
+                host_info["host_linux_version"] = regexed.groups()[0]
+                break
+        f.close()
+    except:
+        try:
+            f.close()
+        except:
+            pass
+        try:
+            f = open("/etc/os-release")
             for line in f.readlines():
-                regexed = re.search('DISTRIB_DESCRIPTION="(.*)"', line)
+                regexed = re.search('PRETTY_NAME="(.*)"', line)
                 if regexed:
                     host_info["host_linux_version"] = regexed.groups()[0]
                     break
-    except:
-        try:
-            with open("/etc/os-release") as f:
-                for line in f.readlines():
-                    regexed = re.search('PRETTY_NAME="(.*)"', line)
-                    if regexed:
-                        host_info["host_linux_version"] = regexed.groups()[0]
-                        break
+            f.close()
         except:
             host_info["host_linux_version"] = "UNKNOWN"
+            try:
+                f.close()
+            except:
+                pass
     return host_info
 
 
@@ -412,10 +444,16 @@ def send_top():
 
 def get_memory(host_info):
     """get total physical memory for machine"""
-    with open("/proc/meminfo") as f:
+    try:
+        f = open("/proc/meminfo")
         pieces = f.readline()
         _, mem_total, _ = pieces.split()
         host_info["host_mem_total"] = mem_total
+    finally:
+        try:
+            f.close()
+        except:
+            pass
 
     return host_info
 
@@ -465,10 +503,16 @@ def put_val(pname, metric, val):
 
 def get_uptime():
     """get uptime for machine"""
-    with open("/proc/uptime") as f:
+    try:
+        f = open("/proc/uptime")
         pieces = f.read()
         uptime, idle_time = pieces.split()
         return uptime
+    finally:
+        try:
+            f.close()
+        except:
+            pass
 
     return None
 
@@ -585,10 +629,14 @@ def receive_notifications(notif):
     headers = {"Content-Type": "application/json"}
     if API_TOKEN != "":
         headers["X-SF-TOKEN"] = API_TOKEN
-    req = requests.post(POST_URL, data=data, headers=headers, timeout=TIMEOUT)
-    sys.stdout.write(req.text.strip())
-    if not req.ok:
-        log("unsuccessful code: %d response: %s" % (req.status_code, req.text))
+    try:
+        req = urllib2.Request(POST_URL, data, headers)
+        r = urllib2.urlopen(req, timeout=TIMEOUT)
+        sys.stdout.write(string.strip(r.read()))
+    except urllib2.URLError:
+        t, e = sys.exc_info()[:2]
+        sys.stdout.write(str(e.reason))
+        log("unsuccessful response: %s" % str(e.reason))
 
 
 def restore_sigchld():
