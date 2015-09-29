@@ -5,6 +5,9 @@ Placeholder changes in the oldest release exist only to document which
 subsections are relevant.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.0.7] - 2015-09-29
+- Remove dependence on requests
+
 ## [0.0.6] - 2015-09-27
 - Add interfaces notifcation
 - Remove logical cpus
