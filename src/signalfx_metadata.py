@@ -635,8 +635,8 @@ def receive_notifications(notif):
         sys.stdout.write(string.strip(r.read()))
     except urllib2.URLError:
         t, e = sys.exc_info()[:2]
-        sys.stdout.write(str(e.reason))
-        log("unsuccessful response: %s" % str(e.reason))
+        sys.stdout.write(str(e))
+        log("unsuccessful response: %s" % str(e))
 
 
 def restore_sigchld():
