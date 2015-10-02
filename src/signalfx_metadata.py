@@ -157,8 +157,16 @@ def send():
         return
 
     LAST = time.time()
-    send_notifications()
     send_datapoint()
+
+    # race condition with host dimension existing
+    global FIRST
+    if FIRST:
+        FIRST = False
+        log("waiting one interval before sending notifications")
+        return
+
+    send_notifications()
     send_top()
 
 
@@ -633,7 +641,7 @@ def receive_notifications(notif):
         req = urllib2.Request(POST_URL, data, headers)
         r = urllib2.urlopen(req, timeout=TIMEOUT)
         sys.stdout.write(string.strip(r.read()))
-    except urllib2.URLError:
+    except Exception:
         t, e = sys.exc_info()[:2]
         sys.stdout.write(str(e))
         log("unsuccessful response: %s" % str(e))
