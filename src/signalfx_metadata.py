@@ -3,6 +3,7 @@
 import fcntl
 import array
 import os
+import os.path
 import re
 import struct
 import socket
@@ -40,7 +41,7 @@ METADATA = {}
 API_TOKEN = ""
 TIMEOUT = 10
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.7"
+VERSION = "0.0.8"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
@@ -224,6 +225,7 @@ def get_cpu_info(host_info={}):
         f = open("/proc/cpuinfo")
         nb_cpu = 0
         nb_cores = 0
+        nb_units = 0
         for p in f.readlines():
             if ':' in p:
                 x, y = map(lambda x: x.strip(), p.split(':', 1))
@@ -233,13 +235,18 @@ def get_cpu_info(host_info={}):
                 if x.startswith("cpu cores"):
                     if nb_cores < int(y):
                         nb_cores = int(y)
+                if x.startswith("processor"):
+                    if nb_units < int(y):
+                        nb_units = int(y)
                 if x.startswith("model name"):
                     model = y
 
         nb_cpu += 1
+        nb_units += 1
         host_info["host_cpu_model"] = model
         host_info["host_physical_cpus"] = str(nb_cpu)
         host_info["host_cpu_cores"] = str(nb_cores)
+        host_info["host_logical_cpus"] = str(nb_units)
     finally:
         try:
             f.close()
@@ -324,37 +331,65 @@ def get_collectd_version(host_info={}):
     return host_info
 
 
-def get_linux_version(host_info={}):
-    """
-    read /etc/lsb-release file for the version information
-    """
+def getLsbRelease(host_info={}):
     try:
-        f = open("/etc/lsb-release")
-        for line in f.readlines():
-            regexed = re.search('DISTRIB_DESCRIPTION="(.*)"', line)
-            if regexed:
-                host_info["host_linux_version"] = regexed.groups()[0]
-                break
-        f.close()
+        if os.path.isfile("/etc/lsb-release"):
+            f = open("/etc/lsb-release")
+            for line in f.readlines():
+                regexed = re.search('DISTRIB_DESCRIPTION="(.*)"', line)
+                if regexed:
+                    host_info["host_linux_version"] = regexed.groups()[0]
+                    return host_info["host_linux_version"]
+            f.close()
     except:
         try:
             f.close()
         except:
             pass
-        try:
+
+
+def getOsRelease(host_info={}):
+    try:
+        if os.path.isfile("/etc/os-release"):
             f = open("/etc/os-release")
             for line in f.readlines():
                 regexed = re.search('PRETTY_NAME="(.*)"', line)
                 if regexed:
                     host_info["host_linux_version"] = regexed.groups()[0]
-                    break
+                    return host_info["host_linux_version"]
+    except:
+        try:
             f.close()
         except:
-            host_info["host_linux_version"] = "UNKNOWN"
-            try:
-                f.close()
-            except:
-                pass
+            pass
+
+
+def getCentos(host_info={}):
+    try:
+        for file in ["/etc/centos-release", "/etc/redhat-release",
+                     "/etc/system-release"]:
+            if os.path.isfile(file):
+                f = open(file)
+                line = f.read()
+                host_info["host_linux_version"] = line.strip()
+                return host_info["host_linux_version"]
+    except:
+        try:
+            f.close()
+        except:
+            pass
+
+
+def get_linux_version(host_info={}):
+    """
+    read a variety of files to figure out linux version
+    """
+
+    for f in [getLsbRelease, getOsRelease, getCentos]:
+        if f(host_info):
+            return
+
+    host_info["host_linux_version"] = "UNKNOWN"
     return host_info
 
 
