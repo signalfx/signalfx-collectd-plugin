@@ -5,6 +5,12 @@ Placeholder changes in the oldest release exist only to document which
 subsections are relevant.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.0.8] - 2015-10-02
+- wait one interval before sending notifications
+- url error parsing more resilient
+- add back in logical cpus
+- better linux version checking
+
 ## [0.0.7] - 2015-09-29
 - Remove dependence on requests
 
