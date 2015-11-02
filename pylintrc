@@ -1,0 +1,6 @@
+[BASIC]
+method-rgx=(([a-z_][a-z0-9_]{2,30})|(setUp)|(tearDown))$
+[TYPECHECK]
+ignored-modules=nose.tools
+[MESSAGES CONTROL]
+disable=C0111,locally-disabled

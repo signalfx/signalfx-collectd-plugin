@@ -2,12 +2,9 @@ language: python
 python:
   - "2.6"
   - "2.7"
-  - "3.2"
-  - "3.3"
-  - "3.4"
 install:
   pip install -r requirements.txt ; pip install flake8
 before_script: 
-  flake8 src/*.py
+  flake8 src/signalfx_metadata.py
 script: 
   for x in src/*.py; do python $x once; done
