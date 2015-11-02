@@ -4,6 +4,7 @@ import fcntl
 import array
 import os
 import os.path
+import random
 import re
 import struct
 import socket
@@ -15,6 +16,8 @@ import subprocess
 import time
 import binascii
 import zlib
+
+import psutil
 
 try:
     import urllib.request as urllib2
@@ -36,22 +39,22 @@ if __name__ != '__main__':
     import collectd
 
 PLUGIN_NAME = 'signalfx-metadata'
-METADATA_HASH = ""
-METADATA = {}
 API_TOKEN = ""
 TIMEOUT = 10
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.8"
+VERSION = "0.0.9"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
 TYPE = "objects"
-FIRST = True
+NEXT_METADATA_SEND = 0
+NEXT_METADATA_SEND_INTERVAL = [1, 60, 3600 + random.randint(0, 60), 86400
+                               + random.randint(0, 600)]
+LAST = 0
 AWS = True
 PROCESS_INFO = True
 INTERVAL = 10
-LAST = 0
-FUDGE = 0.1  # fudge to check intervals
+FUDGE = 1.0  # fudge to check intervals
 HOST = ""
 
 
@@ -147,8 +150,6 @@ def send():
     """
     Send proof-of-life datapoint, top, and notifications if interval elapsed
 
-    Don't send any meta-information on first run just datapoint.
-    This removes the race condition that could possibly exist with the host
     dimensions existing
     """
     global LAST
@@ -157,18 +158,27 @@ def send():
         log("interval not expired %s" % str(diff))
         return
 
-    LAST = time.time()
     send_datapoint()
+    send_top()
 
     # race condition with host dimension existing
-    global FIRST
-    if FIRST:
-        FIRST = False
+    # don't send metadata on initial iteration, but on second
+    # send it then on minute later, then one hour, then one day, then once a
+    # day from then on but off by a fudge factor
+    global NEXT_METADATA_SEND
+    if NEXT_METADATA_SEND == 0:
+        NEXT_METADATA_SEND = time.time() + NEXT_METADATA_SEND_INTERVAL.pop(0)
         log("waiting one interval before sending notifications")
-        return
+    if NEXT_METADATA_SEND < time.time():
+        send_notifications()
+        if len(NEXT_METADATA_SEND_INTERVAL) > 1:
+            NEXT_METADATA_SEND = \
+                time.time() + NEXT_METADATA_SEND_INTERVAL.pop(0)
+        else:
+            NEXT_METADATA_SEND = time.time() + NEXT_METADATA_SEND_INTERVAL[0]
+        log("till next metadata " + str(NEXT_METADATA_SEND - time.time()))
 
-    send_notifications()
-    send_top()
+    LAST = time.time()
 
 
 def all_interfaces():
@@ -221,8 +231,7 @@ def get_interfaces(host_info={}):
 
 def get_cpu_info(host_info={}):
     """populate host_info with cpu information"""
-    try:
-        f = open("/proc/cpuinfo")
+    with open("/proc/cpuinfo") as f:
         nb_cpu = 0
         nb_cores = 0
         nb_units = 0
@@ -247,11 +256,6 @@ def get_cpu_info(host_info={}):
         host_info["host_physical_cpus"] = str(nb_cpu)
         host_info["host_cpu_cores"] = str(nb_cores)
         host_info["host_logical_cpus"] = str(nb_units)
-    finally:
-        try:
-            f.close()
-        except:
-            pass
 
     return host_info
 
@@ -318,8 +322,7 @@ def get_collectd_version(host_info={}):
     """
     host_info["host_collectd_version"] = "UNKNOWN"
     try:
-        pid = os.getpid()
-        output = popen(["/proc/%d/exe" % pid, "-h"])
+        output = popen(["/proc/self/exe", "-h"])
         regexed = re.search("collectd (.*), http://collectd.org/",
                             output.decode())
         if regexed:
@@ -332,52 +335,33 @@ def get_collectd_version(host_info={}):
 
 
 def getLsbRelease(host_info={}):
-    try:
-        if os.path.isfile("/etc/lsb-release"):
-            f = open("/etc/lsb-release")
+    if os.path.isfile("/etc/lsb-release"):
+        with open("/etc/lsb-release") as f:
             for line in f.readlines():
                 regexed = re.search('DISTRIB_DESCRIPTION="(.*)"', line)
                 if regexed:
                     host_info["host_linux_version"] = regexed.groups()[0]
                     return host_info["host_linux_version"]
-            f.close()
-    except:
-        try:
-            f.close()
-        except:
-            pass
 
 
 def getOsRelease(host_info={}):
-    try:
-        if os.path.isfile("/etc/os-release"):
-            f = open("/etc/os-release")
-            for line in f.readlines():
-                regexed = re.search('PRETTY_NAME="(.*)"', line)
-                if regexed:
-                    host_info["host_linux_version"] = regexed.groups()[0]
-                    return host_info["host_linux_version"]
-    except:
-        try:
-            f.close()
-        except:
-            pass
+    with os.path.isfile("/etc/os-release") as f:
+        f = open("/etc/os-release")
+        for line in f.readlines():
+            regexed = re.search('PRETTY_NAME="(.*)"', line)
+            if regexed:
+                host_info["host_linux_version"] = regexed.groups()[0]
+                return host_info["host_linux_version"]
 
 
 def getCentos(host_info={}):
-    try:
-        for file in ["/etc/centos-release", "/etc/redhat-release",
-                     "/etc/system-release"]:
-            if os.path.isfile(file):
-                f = open(file)
+    for file in ["/etc/centos-release", "/etc/redhat-release",
+                 "/etc/system-release"]:
+        if os.path.isfile(file):
+            with open(file) as f:
                 line = f.read()
                 host_info["host_linux_version"] = line.strip()
                 return host_info["host_linux_version"]
-    except:
-        try:
-            f.close()
-        except:
-            pass
 
 
 def get_linux_version(host_info={}):
@@ -420,6 +404,39 @@ def parse_priority(priority):
         return 99
 
 
+def to_time(secs):
+    minutes = int(secs / 60)
+    seconds = secs % 60.0
+    sec = int(seconds)
+    dec = int((seconds - sec) * 100)
+    return "%02d:%02d.%02d" % (minutes, sec, dec)
+
+
+def read_proc_file(pid, file, field=None):
+    with open("/proc/%s/%s" % (pid, file)) as f:
+        if not field:
+            return f.read().strip()
+        for x in f.readlines():
+            if x.startswith(field):
+                return x.split(":")[1].strip()
+
+
+def get_priority(pid):
+    val = read_proc_file(pid, "sched", "prio")
+    val = int(val) - 100
+    if val < 0:
+        val = 99
+    return val
+
+
+def get_command(pid):
+    val = read_proc_file(pid, "cmdline")
+    if not val:
+        val = read_proc_file(pid, "status", "Name")
+        val = "[%s]" % val
+    return val
+
+
 def send_top():
     """
     Parse top unless told not to
@@ -429,74 +446,47 @@ def send_top():
     if not PROCESS_INFO:
         return
 
+    status_map = {
+        "sleeping": "S",
+        "uninterruptible sleep": "D",
+        "running": "R",
+        "traced": "T",
+        "stopped": "T",
+        "zombie": "Z",
+    }
+
     # send version up with the values
     response = {"v": VERSION}
-    try:
-        topversion = popen(["top", "-h"]).strip().decode("utf-8")
-        splitted = topversion.split("\n")[0]
-        cmd = ["top", "-b", "-n1", "-c"]
-        response["top"] = splitted
-        # only ng has width
-        if "procps-ng" in splitted:
-            cmd.append("-w1024")
-        top = {}
-        p1 = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-        # filter ansi escape sequences
-        p2 = subprocess.Popen(["sed", "-r",
-                               "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g"],
-                              stdin=p1.stdout, stdout=subprocess.PIPE)
-        top_raw = p2.communicate()[0].strip()
-
-        read = False
-        top_raw = top_raw.decode()
-        for line in top_raw.split("\n"):
-            pieces = line.strip().split()
-            if len(pieces) < 12:
-                continue
-            if pieces[0] == 'PID':
-                read = True
-                continue
-            if not read:
-                continue
-            top[int(pieces[0])] = [
-                pieces[1],  # user
-                parse_priority(pieces[2]),  # priority
-                int(pieces[3]),  # nice value, numerical
-                parse_bytes(pieces[4]),  # virtual memory size in kb int
-                parse_bytes(pieces[5]),  # resident memory size in kb int
-                parse_bytes(pieces[6]),  # shared memory size in kb int
-                pieces[7],  # process status
-                float(pieces[8]),  # % cpu, float
-                float(pieces[9]),  # % mem, float
-                pieces[10],  # cpu time in hundredths
-                " ".join(pieces[11:]),  # command
-            ]
-        s = compact(top)
-        compressed = zlib.compress(s.encode("utf-8"))
-        base64 = binascii.b2a_base64(compressed)
-        response["t"] = base64.decode("utf-8")
-    except:
-        msg = str(sys.exc_info()[0])
-        log("error occurred parsing top: %s" % msg)
-        response["error"] = msg
-
+    top = {}
+    for p in psutil.process_iter():
+        top[p.pid] = [
+            p.username(),  # user
+            get_priority(p.pid),  # priority
+            p.nice(),  # nice alue, numerical
+            p.memory_info_ex()[1],  # virutal memory size in kb int
+            p.memory_info_ex()[0],  # resident memory size in kd int
+            p.memory_info_ex()[2],  # shared memory size in kb int
+            status_map.get(p.status(), "D"),  # process status
+            p.cpu_percent(),  # % cpu, float
+            p.memory_percent(),  # % mem, float
+            to_time(p.cpu_times().system + p.cpu_times().user),  # cpu time
+            get_command(p.pid)  # command
+        ]
+    s = compact(top)
+    compressed = zlib.compress(s.encode("utf-8"))
+    base64 = binascii.b2a_base64(compressed)
+    response["t"] = base64.decode("utf-8")
     response_json = compact(response)
-    notif = LargeNotif(response_json, TOP_TYPE_INSTANCE, TOP_TYPE_INSTANCE)
+    notif = LargeNotif(response_json, TOP_TYPE_INSTANCE, VERSION)
     receive_notifications(notif)
 
 
 def get_memory(host_info):
     """get total physical memory for machine"""
-    try:
-        f = open("/proc/meminfo")
+    with open("/proc/meminfo") as f:
         pieces = f.readline()
         _, mem_total, _ = pieces.split()
         host_info["host_mem_total"] = mem_total
-    finally:
-        try:
-            f.close()
-        except:
-            pass
 
     return host_info
 
@@ -546,16 +536,10 @@ def put_val(pname, metric, val):
 
 def get_uptime():
     """get uptime for machine"""
-    try:
-        f = open("/proc/uptime")
+    with open("/proc/uptime") as f:
         pieces = f.read()
         uptime, idle_time = pieces.split()
         return uptime
-    finally:
-        try:
-            f.close()
-        except:
-            pass
 
     return None
 
@@ -594,21 +578,8 @@ def write_notifications(host_info):
 
 
 def send_notifications():
-    """
-    only send notifications if metadata has changed
-    changed defined by add or modify
-    """
-    global METADATA_HASH
-    global METADATA
     host_info = get_host_info()
-    host_hash = hash(frozenset(host_info.items()))
-    old_host_info, METADATA = METADATA, host_info
-    if METADATA_HASH != host_hash:
-        METADATA_HASH = host_hash
-        if old_host_info:
-            host_info = map_diff(host_info, old_host_info)
-
-        write_notifications(host_info)
+    write_notifications(host_info)
 
 
 def get_severity(severity_int):

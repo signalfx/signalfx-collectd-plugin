@@ -5,6 +5,13 @@ Placeholder changes in the oldest release exist only to document which
 subsections are relevant.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.0.9] - 2015-10-26
+- use self instead of os.getpid to get collectd version
+- change how often we send metadata from only on startup to startup, 
+    one minute, hour and day, then per day from then on
+- use psutil instead of top
+- send in plugin version as plugin_instance
+
 ## [0.0.8] - 2015-10-02
 - wait one interval before sending notifications
 - url error parsing more resilient
