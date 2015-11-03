@@ -345,13 +345,13 @@ def getLsbRelease(host_info={}):
 
 
 def getOsRelease(host_info={}):
-    with os.path.isfile("/etc/os-release") as f:
-        f = open("/etc/os-release")
-        for line in f.readlines():
-            regexed = re.search('PRETTY_NAME="(.*)"', line)
-            if regexed:
-                host_info["host_linux_version"] = regexed.groups()[0]
-                return host_info["host_linux_version"]
+    if os.path.isfile("/etc/os-release"):
+        with open("/etc/os-release") as f:
+            for line in f.readlines():
+                regexed = re.search('PRETTY_NAME="(.*)"', line)
+                if regexed:
+                    host_info["host_linux_version"] = regexed.groups()[0]
+                    return host_info["host_linux_version"]
 
 
 def getCentos(host_info={}):
