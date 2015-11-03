@@ -422,10 +422,16 @@ def read_proc_file(pid, file, field=None):
 
 
 def get_priority(pid):
-    val = read_proc_file(pid, "sched", "prio")
-    val = int(val) - 100
-    if val < 0:
-        val = 99
+    try:
+        val = read_proc_file(pid, "sched", "prio")
+        val = int(val) - 100
+        if val < 0:
+            val = 99
+    except Exception:
+        t, e = sys.exc_info()[:2]
+        sys.stdout.write(str(e))
+        log("unsuccessful read of priority: %s" % str(e))
+        val = 0
     return val
 
 
@@ -459,19 +465,25 @@ def send_top():
     response = {"v": VERSION}
     top = {}
     for p in psutil.process_iter():
-        top[p.pid] = [
-            p.username(),  # user
-            get_priority(p.pid),  # priority
-            p.nice(),  # nice alue, numerical
-            p.memory_info_ex()[1],  # virutal memory size in kb int
-            p.memory_info_ex()[0],  # resident memory size in kd int
-            p.memory_info_ex()[2],  # shared memory size in kb int
-            status_map.get(p.status(), "D"),  # process status
-            p.cpu_percent(),  # % cpu, float
-            p.memory_percent(),  # % mem, float
-            to_time(p.cpu_times().system + p.cpu_times().user),  # cpu time
-            get_command(p.pid)  # command
-        ]
+        try:
+            top[p.pid] = [
+                p.username(),  # user
+                get_priority(p.pid),  # priority
+                p.nice(),  # nice alue, numerical
+                p.memory_info_ex()[1],  # virutal memory size in kb int
+                p.memory_info_ex()[0],  # resident memory size in kd int
+                p.memory_info_ex()[2],  # shared memory size in kb int
+                status_map.get(p.status(), "D"),  # process status
+                p.cpu_percent(),  # % cpu, float
+                p.memory_percent(),  # % mem, float
+                to_time(p.cpu_times().system + p.cpu_times().user),  # cpu time
+                get_command(p.pid)  # command
+            ]
+        except Exception:
+            t, e = sys.exc_info()[:2]
+            sys.stdout.write(str(e))
+            log("pid disappeared %d: %s" % (p.pid, str(e)))
+
     s = compact(top)
     compressed = zlib.compress(s.encode("utf-8"))
     base64 = binascii.b2a_base64(compressed)
