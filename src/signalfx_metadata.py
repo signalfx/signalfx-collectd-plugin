@@ -18,6 +18,7 @@ import binascii
 import zlib
 
 import psutil
+
 import collectd_dogstatsd
 
 try:
@@ -39,15 +40,19 @@ except:
 try:
     import collectd
     import logging
+
     logging.basicConfig(level=logging.DEBUG)
 except ImportError:
-    import dummy_collectd as collectd
+    try:
+        import dummy_collectd as collectd
+    except:
+        pass
 
 PLUGIN_NAME = 'signalfx-metadata'
 API_TOKEN = ""
 TIMEOUT = 10
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.9"
+VERSION = "0.0.10"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
@@ -443,10 +448,10 @@ def get_priority(pid):
     return val
 
 
-def get_command(pid):
-    val = read_proc_file(pid, "cmdline")
+def get_command(p):
+    val = " ".join(p.cmdline())
     if not val:
-        val = read_proc_file(pid, "status", "Name")
+        val = read_proc_file(p.pid, "status", "Name")
         val = "[%s]" % val
     return val
 
@@ -485,7 +490,7 @@ def send_top():
                 p.cpu_percent(),  # % cpu, float
                 p.memory_percent(),  # % mem, float
                 to_time(p.cpu_times().system + p.cpu_times().user),  # cpu time
-                get_command(p.pid)  # command
+                get_command(p)  # command
             ]
         except Exception:
             t, e = sys.exc_info()[:2]
@@ -685,7 +690,9 @@ def restore_sigchld():
     except:
         log("executing SIGCHLD workaround")
         signal.signal(signal.SIGCHLD, signal.SIG_DFL)
-    DOGSTATSD_INSTANCE.init_callback()
+    if __name__ != "__main__":
+        DOGSTATSD_INSTANCE.init_callback()
+
 
 # Note: Importing collectd_dogstatsd registers its own endpoints
 
