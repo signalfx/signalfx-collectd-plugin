@@ -39,3 +39,7 @@ For metadata:
   notifications are emitted.  "ERROR" would just be error.  "WARNING" would
   include "ERROR" and "WARNING".
 
+For DogstatsD support:
+
+* To enable reading of DogstatsD metrics, add a line similar to the following
+  to your config inside the Module block  ```DogStatsDPort 8126```
