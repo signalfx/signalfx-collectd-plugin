@@ -41,7 +41,7 @@ try:
     import collectd
     import logging
 
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
 except ImportError:
     try:
         import dummy_collectd as collectd
