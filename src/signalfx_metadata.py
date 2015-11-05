@@ -456,6 +456,11 @@ def get_command(p):
     return val
 
 
+def get_nice(p):
+    val = read_proc_file(p.pid, "stat")
+    return val.split()[18]
+
+
 def send_top():
     """
     Parse top unless told not to
@@ -482,8 +487,8 @@ def send_top():
             top[p.pid] = [
                 p.username(),  # user
                 get_priority(p.pid),  # priority
-                p.nice(),  # nice alue, numerical
-                p.memory_info_ex()[1],  # virutal memory size in kb int
+                get_nice(p),  # nice value, numerical
+                p.memory_info_ex()[1],  # virtual memory size in kb int
                 p.memory_info_ex()[0],  # resident memory size in kd int
                 p.memory_info_ex()[2],  # shared memory size in kb int
                 status_map.get(p.status(), "D"),  # process status
