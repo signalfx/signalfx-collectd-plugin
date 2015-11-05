@@ -141,12 +141,11 @@ class SignalfxPointSender(object):
 
             sfx_metric["metric"] = metric['metric']
             sfx_metric["dimensions"] = dims_from_tags(metric['tags'])
-            sfx_metric["timestamp"] = metric['points'][0][0] * 1000
+            sfx_metric["timestamp"] = int(metric['points'][0][0] * 1000)
             sfx_metric["value"] = metric['points'][0][1]
             if metric['type'] == "rate":
                 sfx_metric["value"] *= self.config.aggregator_interval
 
-            self.log.verbose("m: {} v: {}", metric, sfx_metric)
             if mtype == "gauge":
                 gauges.append(sfx_metric)
             elif mtype == "counter":
