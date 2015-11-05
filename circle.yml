@@ -1,0 +1,19 @@
+machine:
+  environment:
+    PATH: "$HOME/.local/bin:$PATH"
+
+dependencies:
+  cache_directories:
+    - ~/.local
+
+  override:
+    - pip install pep8 
+    - pip install flake8
+    - pip install nose
+    - pip install pylint
+    - pip install -r requirements.txt
+    - gem install mdl
+
+test:
+  override:
+    - ./verify.sh
