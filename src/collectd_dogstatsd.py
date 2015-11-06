@@ -122,6 +122,8 @@ class SignalfxPointSender(object):
     def __init__(self, config, log):
         self.config = config
         self.log = log
+        self.host = ""
+
         import signalfx
         self.sfx = signalfx.SignalFx(config.api_token,
                                      ingest_endpoint=config.ingest_endpoint)
@@ -141,6 +143,11 @@ class SignalfxPointSender(object):
 
             sfx_metric["metric"] = metric['metric']
             sfx_metric["dimensions"] = dims_from_tags(metric['tags'])
+            if "host" not in sfx_metric["dimensions"]:
+                sfx_metric["dimensions"]["host"] = self.host
+            if sfx_metric["dimensions"]["host"] == "":
+                self.log.info("waiting for host dim from metadata plugin")
+                return
             sfx_metric["timestamp"] = int(metric['points'][0][0] * 1000)
             sfx_metric["value"] = metric['points'][0][1]
             if metric['type'] == "rate":
@@ -152,6 +159,9 @@ class SignalfxPointSender(object):
                 counters.append(sfx_metric)
         self.log.verbose("Sending %d metrics" % len(metrics))
         self.sfx.send(gauges=gauges, counters=counters)
+
+    def set_host(self, host):
+        self.host = host
 
 
 class CollectDPointSender(object):
@@ -180,6 +190,10 @@ class CollectDPointSender(object):
             self.log.verbose("m: {} v: {}", metric, val)
             val.dispatch()
 
+    def set_host(self, host):
+        # Host ignored.  Set by collectd
+        pass
+
 
 class DogstatsDCollectD(object):
 
@@ -194,6 +208,9 @@ class DogstatsDCollectD(object):
                                           self.plugin, self.log)
         if register:
             self.register(collectd_module)
+
+    def set_host(self, host):
+        self.sender.set_host(host)
 
     def register(self, collectd_module):
         collectd_module.register_config(self.config.configure_callback)

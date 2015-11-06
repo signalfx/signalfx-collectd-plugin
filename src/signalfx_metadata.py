@@ -641,6 +641,7 @@ def receive_notifications(notif):
     global HOST
     if not HOST and notif.host:
         HOST = notif.host
+        DOGSTATSD_INSTANCE.set_host(notif.host)
         log("found host " + HOST)
 
     if not API_TOKEN:
