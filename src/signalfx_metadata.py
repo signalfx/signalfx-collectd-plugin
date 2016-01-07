@@ -1,20 +1,21 @@
 #!/usr/bin/python
 
-import fcntl
 import array
+import binascii
+import fcntl
 import os
 import os.path
+import platform
 import random
 import re
-import struct
-import socket
-import sys
-import string
-import platform
 import signal
+import socket
+import string
+import struct
 import subprocess
+import sys
+import threading
 import time
-import binascii
 import zlib
 
 import psutil
@@ -52,7 +53,7 @@ PLUGIN_NAME = 'signalfx-metadata'
 API_TOKEN = ""
 TIMEOUT = 10
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.10"
+VERSION = "0.0.11"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
@@ -66,6 +67,11 @@ PROCESS_INFO = True
 INTERVAL = 10
 FUDGE = 1.0  # fudge to check intervals
 HOST = ""
+
+RESPONSE_LOCK = threading.Lock()
+MAX_RESPONSE = 0
+RESPONSE_ERRORS = 0
+DATAPOINT_COUNT = 0
 
 DOGSTATSD_INSTANCE = collectd_dogstatsd.DogstatsDCollectD(collectd)
 
@@ -127,6 +133,7 @@ def plugin_config(conf):
     for kv in conf.children:
         if kv.key == 'Notifications':
             if kv.values[0]:
+                log("sending collectd notifications")
                 collectd.register_notification(receive_notifications)
         elif kv.key == 'ProcessInfo':
             if kv.values[0]:
@@ -168,7 +175,6 @@ def send():
     DOGSTATSD_INSTANCE.read_callback()
     diff = time.time() - LAST + FUDGE
     if diff < INTERVAL:
-        log("interval not expired %s" % str(diff))
         return
 
     send_datapoint()
@@ -488,9 +494,9 @@ def send_top():
                 p.username(),  # user
                 get_priority(p.pid),  # priority
                 get_nice(p),  # nice value, numerical
-                p.memory_info_ex()[1],  # virtual memory size in kb int
-                p.memory_info_ex()[0],  # resident memory size in kd int
-                p.memory_info_ex()[2],  # shared memory size in kb int
+                p.memory_info_ex()[1]/1024,  # virtual memory size in kb int
+                p.memory_info_ex()[0]/1024,  # resident memory size in kb int
+                p.memory_info_ex()[2]/1024,  # shared memory size in kb int
                 status_map.get(p.status(), "D"),  # process status
                 p.cpu_percent(),  # % cpu, float
                 p.memory_percent(),  # % mem, float
@@ -500,7 +506,6 @@ def send_top():
         except Exception:
             t, e = sys.exc_info()[:2]
             sys.stdout.write(str(e))
-            log("pid disappeared %d: %s" % (p.pid, str(e)))
 
     s = compact(top)
     compressed = zlib.compress(s.encode("utf-8"))
@@ -574,9 +579,27 @@ def get_uptime():
     return None
 
 
+def get_response_metrics():
+    global MAX_RESPONSE
+    global DATAPOINT_COUNT
+    with RESPONSE_LOCK:
+        max = MAX_RESPONSE
+        dp = DATAPOINT_COUNT
+        MAX_RESPONSE, DATAPOINT_COUNT = 0, 0
+        diff = time.time() - LAST
+        dpm = (dp / diff) * 60.0
+        return max, int(dpm)
+
+
 def send_datapoint():
     """write proof-of-life datapoint"""
     put_val("", "sf.host-uptime", [get_uptime(), "gauge"])
+    max, dpm = get_response_metrics()
+    if max:
+        put_val("", "sf.host-response.max", [max, "gauge"])
+    if dpm:
+        put_val("", "sf.host-dpm", [dpm, "gauge"])
+    put_val("", "sf.host-response.errors", [RESPONSE_ERRORS, "counter"])
 
 
 def putnotif(property_name, message, plugin_name=PLUGIN_NAME,
@@ -621,19 +644,27 @@ def get_severity(severity_int):
     }[severity_int]
 
 
-def receive_notifications(notif):
+def update_response_times(diff):
+    with RESPONSE_LOCK:
+        global MAX_RESPONSE
+        if diff > MAX_RESPONSE:
+            MAX_RESPONSE = diff
+
+
+def steal_host_from_notifications(notif):
     """
-    callback to consume notifications from collectd and emit them to SignalFx.
-    callback will only be called if Notifications was configured to be true.
-    Only send notifications created by other plugs which are above or equal
-    the configured NotifyLevel.
+    callback to consume notifications from collectd and steal host name from it
+    even if we don't want to have the plugin send them.
+    :param notif: notification
+    :return: true if should continue, false if not
     """
+
     if not notif:
-        return
+        return False
 
     if __name__ == "__main__":
         log(notif)
-        return
+        return False
 
     # we send our own notifications but we don't have access to collectd's
     # "host" from collectd.conf steal it from notifications we've put on the
@@ -644,7 +675,18 @@ def receive_notifications(notif):
         DOGSTATSD_INSTANCE.set_host(notif.host)
         log("found host " + HOST)
 
-    if not API_TOKEN:
+    return True
+
+
+def receive_notifications(notif):
+    """
+    callback to consume notifications from collectd and emit them to SignalFx.
+    callback will only be called if Notifications was configured to be true.
+    Only send notifications created by other plugs which are above or equal
+    the configured NotifyLevel.
+    """
+
+    if not steal_host_from_notifications(notif):
         return
 
     notif_dict = {}
@@ -675,13 +717,24 @@ def receive_notifications(notif):
     if API_TOKEN != "":
         headers["X-SF-TOKEN"] = API_TOKEN
     try:
+        start = time.time()
         req = urllib2.Request(POST_URL, data, headers)
         r = urllib2.urlopen(req, timeout=TIMEOUT)
         sys.stdout.write(string.strip(r.read()))
+        diff = time.time() - start
+        update_response_times(diff * 1000000.0)
     except Exception:
         t, e = sys.exc_info()[:2]
         sys.stdout.write(str(e))
         log("unsuccessful response: %s" % str(e))
+        global RESPONSE_ERRORS
+        RESPONSE_ERRORS += 1
+
+
+def receive_datapoint(values_obj):
+    with RESPONSE_LOCK:
+        global DATAPOINT_COUNT
+        DATAPOINT_COUNT += len(values_obj.values)
 
 
 def restore_sigchld():
@@ -704,9 +757,11 @@ def restore_sigchld():
 
 if __name__ != "__main__":
     # when running inside plugin
+    collectd.register_notification(steal_host_from_notifications)
     collectd.register_init(restore_sigchld)
     collectd.register_config(plugin_config)
     collectd.register_read(send)
+    collectd.register_write(receive_datapoint)
     collectd.register_shutdown(DOGSTATSD_INSTANCE.register_shutdown)
 
 else:

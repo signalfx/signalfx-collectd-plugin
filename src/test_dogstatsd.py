@@ -1,15 +1,16 @@
 import logging
 import time
+
 from nose.tools import assert_equals
+
 import aggregator
+import collectd_dogstatsd
 import dogstatsd
 import dummy_collectd
 
 dummy_collectd.INSTANCE.is_running_tests = True
 logging.basicConfig(level=logging.DEBUG)
 dummy_collectd.INSTANCE.init_logging()
-
-import collectd_dogstatsd
 
 
 def make_config():
@@ -25,7 +26,6 @@ def make_config():
 
 
 class TestModuleSetup(object):
-
     def __init__(self):
         self.collectd_engine = None
         self.dog_module = None
