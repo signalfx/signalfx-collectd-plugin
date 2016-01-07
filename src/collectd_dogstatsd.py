@@ -1,13 +1,13 @@
 import threading
 import time
 
+import dogstatsd
+
 PLUGIN_NAME = "dogstatsd"
 DEFAULT_SOCKET = None
 DEFAULT_IP = "0.0.0.0"
 MAX_RECV_SIZE = 65535
 INGEST_URL = "https://ingest.signalfx.com"
-
-import dogstatsd
 
 
 class Logger(object):
@@ -80,8 +80,6 @@ class DogstatsDConfig(object):
                 self.api_token = node.values[0]
             elif node.key == "collectdsend":
                 self.collectd_send = bool(node.values[0])
-            # else:
-            #     self.log.warning('Unknown config key: %s' % node.key)
 
 
 def filter_signalfx_dimension(dogstatsddim):
@@ -196,7 +194,6 @@ class CollectDPointSender(object):
 
 
 class DogstatsDCollectD(object):
-
     # pylint: disable=too-many-instance-attributes
     # Reasonable to leave the config here
     def __init__(self, collectd_module, plugin='dogstatsd', register=False):
