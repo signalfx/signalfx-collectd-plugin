@@ -1,5 +1,16 @@
-0.0.9 / 2015-10-26
+0.0.11 / 2016-01-07
 ==================
+
+* fix units issue on memory
+* add metrics for max response time, send errors and dpm
+* quiet top info when pids disappear
+* steal hosts from other notifications even if we aren't the one sending them
+
+0.0.10 / 2015-11-04
+
+* add dogstatsd support if configured to do so
+
+0.0.9 / 2015-10-26
 
 * use self instead of os.getpid to get collectd version
 * change how often we send metadata from only on startup to startup,
