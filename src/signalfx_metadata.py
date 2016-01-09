@@ -64,6 +64,7 @@ NEXT_METADATA_SEND_INTERVAL = [1, 60, 3600 + random.randint(0, 60), 86400
 LAST = 0
 AWS = True
 PROCESS_INFO = True
+DPM = False
 INTERVAL = 10
 FUDGE = 1.0  # fudge to check intervals
 HOST = ""
@@ -71,7 +72,7 @@ HOST = ""
 RESPONSE_LOCK = threading.Lock()
 MAX_RESPONSE = 0
 RESPONSE_ERRORS = 0
-DATAPOINT_COUNT = 0
+DATAPOINT_COUNT = {}
 
 DOGSTATSD_INSTANCE = collectd_dogstatsd.DogstatsDCollectD(collectd)
 
@@ -136,9 +137,13 @@ def plugin_config(conf):
                 log("sending collectd notifications")
                 collectd.register_notification(receive_notifications)
         elif kv.key == 'ProcessInfo':
-            if kv.values[0]:
-                global PROCESS_INFO
-                PROCESS_INFO = True
+            global PROCESS_INFO
+            PROCESS_INFO = kv.values[0]
+        elif kv.key == 'DPM':
+            global DPM
+            DPM = kv.values[0]
+            if DPM:
+                collectd.register_write(receive_datapoint)
         elif kv.key == 'URL':
             global POST_URL
             POST_URL = kv.values[0]
@@ -494,9 +499,9 @@ def send_top():
                 p.username(),  # user
                 get_priority(p.pid),  # priority
                 get_nice(p),  # nice value, numerical
-                p.memory_info_ex()[1]/1024,  # virtual memory size in kb int
-                p.memory_info_ex()[0]/1024,  # resident memory size in kb int
-                p.memory_info_ex()[2]/1024,  # shared memory size in kb int
+                p.memory_info_ex()[1] / 1024,  # virtual memory size in kb int
+                p.memory_info_ex()[0] / 1024,  # resident memory size in kb int
+                p.memory_info_ex()[2] / 1024,  # shared memory size in kb int
                 status_map.get(p.status(), "D"),  # process status
                 p.cpu_percent(),  # % cpu, float
                 p.memory_percent(),  # % mem, float
@@ -579,26 +584,28 @@ def get_uptime():
     return None
 
 
-def get_response_metrics():
-    global MAX_RESPONSE
-    global DATAPOINT_COUNT
-    with RESPONSE_LOCK:
-        max = MAX_RESPONSE
-        dp = DATAPOINT_COUNT
-        MAX_RESPONSE, DATAPOINT_COUNT = 0, 0
-        diff = time.time() - LAST
-        dpm = (dp / diff) * 60.0
-        return max, int(dpm)
-
-
 def send_datapoint():
     """write proof-of-life datapoint"""
     put_val("", "sf.host-uptime", [get_uptime(), "gauge"])
-    max, dpm = get_response_metrics()
+    global MAX_RESPONSE
+    max = MAX_RESPONSE
+    MAX_RESPONSE = 0
+    if DPM:
+        global DATAPOINT_COUNT
+        with RESPONSE_LOCK:
+            dp = DATAPOINT_COUNT
+            DATAPOINT_COUNT = {}
+            diff = time.time() - LAST
+            dpm = {}
+            for k, v in dp.items():
+                dpm[k] = int((v / diff) * 60.0)
+        if dpm:
+            for k, v in dpm.items():
+                put_val(k, "sf.host-dpm", [v, "gauge"])
+
     if max:
         put_val("", "sf.host-response.max", [max, "gauge"])
-    if dpm:
-        put_val("", "sf.host-dpm", [dpm, "gauge"])
+
     put_val("", "sf.host-response.errors", [RESPONSE_ERRORS, "counter"])
 
 
@@ -734,7 +741,8 @@ def receive_notifications(notif):
 def receive_datapoint(values_obj):
     with RESPONSE_LOCK:
         global DATAPOINT_COUNT
-        DATAPOINT_COUNT += len(values_obj.values)
+        DATAPOINT_COUNT.setdefault(values_obj.plugin, 0)
+        DATAPOINT_COUNT[values_obj.plugin] += len(values_obj.values)
 
 
 def restore_sigchld():
@@ -761,7 +769,6 @@ if __name__ != "__main__":
     collectd.register_init(restore_sigchld)
     collectd.register_config(plugin_config)
     collectd.register_read(send)
-    collectd.register_write(receive_datapoint)
     collectd.register_shutdown(DOGSTATSD_INSTANCE.register_shutdown)
 
 else:
