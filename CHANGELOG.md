@@ -1,5 +1,11 @@
-0.0.11 / 2016-01-07
+0.0.12 / 2016-01-15
 ==================
+
+* change uptime to plugin uptime
+* quiet a few more top exceptions
+* default timeout to 3 seconds
+
+0.0.11 / 2016-01-07
 
 * fix units issue on memory
 * add metrics for max response time, send errors and dpm
