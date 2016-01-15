@@ -51,16 +51,16 @@ except ImportError:
 
 PLUGIN_NAME = 'signalfx-metadata'
 API_TOKEN = ""
-TIMEOUT = 10
+TIMEOUT = 3
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.11"
+VERSION = "0.0.12"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
 TYPE = "objects"
 NEXT_METADATA_SEND = 0
-NEXT_METADATA_SEND_INTERVAL = [1, 60, 3600 + random.randint(0, 60), 86400
-                               + random.randint(0, 600)]
+NEXT_METADATA_SEND_INTERVAL = \
+    [1, 60, 3600 + random.randint(0, 60), 86400 + random.randint(0, 600)]
 LAST = 0
 AWS = True
 PROCESS_INFO = True
@@ -68,6 +68,7 @@ DPM = False
 INTERVAL = 10
 FUDGE = 1.0  # fudge to check intervals
 HOST = ""
+UP = time.time()
 
 RESPONSE_LOCK = threading.Lock()
 MAX_RESPONSE = 0
@@ -446,16 +447,10 @@ def read_proc_file(pid, file, field=None):
 
 
 def get_priority(pid):
-    try:
-        val = read_proc_file(pid, "sched", "prio")
-        val = int(val) - 100
-        if val < 0:
-            val = 99
-    except Exception:
-        t, e = sys.exc_info()[:2]
-        sys.stdout.write(str(e))
-        log("unsuccessful read of priority: %s" % str(e))
-        val = 0
+    val = read_proc_file(pid, "sched", "prio")
+    val = int(val) - 100
+    if val < 0:
+        val = 99
     return val
 
 
@@ -509,8 +504,8 @@ def send_top():
                 get_command(p)  # command
             ]
         except Exception:
-            t, e = sys.exc_info()[:2]
-            sys.stdout.write(str(e))
+            # eat exceptions here because they're very noisy
+            pass
 
     s = compact(top)
     compressed = zlib.compress(s.encode("utf-8"))
@@ -575,18 +570,13 @@ def put_val(pname, metric, val):
 
 
 def get_uptime():
-    """get uptime for machine"""
-    with open("/proc/uptime") as f:
-        pieces = f.read()
-        uptime, idle_time = pieces.split()
-        return uptime
-
-    return None
+    """get uptime for plugin"""
+    return time.time() - UP
 
 
 def send_datapoint():
     """write proof-of-life datapoint"""
-    put_val("", "sf.host-uptime", [get_uptime(), "gauge"])
+    put_val("", "sf.host-plugin_uptime", [get_uptime(), "gauge"])
     global MAX_RESPONSE
     max = MAX_RESPONSE
     MAX_RESPONSE = 0
@@ -704,7 +694,8 @@ def receive_notifications(notif):
 
     # emit notifications that are ours, or satisfy the notify level
     if notif_dict['plugin'] != PLUGIN_NAME and notif_dict['type'] != TYPE \
-            and notif_dict['type_instance'] not in [HOST_TYPE_INSTANCE, TOP_TYPE_INSTANCE] \
+            and notif_dict['type_instance'] not in [HOST_TYPE_INSTANCE,
+                                                    TOP_TYPE_INSTANCE] \
             and notif_dict["severity"] > NOTIFY_LEVEL:
         log("event ignored: " + str(notif_dict))
         return
