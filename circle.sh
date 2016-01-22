@@ -2,7 +2,7 @@
 set -ex
 set -o pipefail
 
-CIRCLEUTIL_TAG="v1.37"
+CIRCLEUTIL_TAG="v1.40"
 
 export CIRCLE_ARTIFACTS="${CIRCLE_ARTIFACTS-/tmp}"
 export BASE_DIR="$HOME"
