@@ -1,19 +1,28 @@
+general:
+  branches:
+    only:
+      - testci
+
 machine:
   environment:
+    DOCKER_HOST: tcp://localhost:2375
     PATH: "$HOME/.local/bin:$PATH"
+
+  services:
+    - docker
+  pre:
+    - echo 'DOCKER_OPTS="${DOCKER_OPTS} -H tcp://127.0.0.1:2375 -H unix:///var/run/docker.sock"' | sudo tee -a /etc/default/docker
 
 dependencies:
   cache_directories:
     - ~/.local
 
   override:
-    - pip install pep8 
-    - pip install flake8
-    - pip install nose
-    - pip install pylint
-    - pip install -r requirements.txt
-    - gem install mdl
+    - ./circle.sh cache > >(tee $CIRCLE_ARTIFACTS/cache.stdout.txt) 2> >(tee $CIRCLE_ARTIFACTS/cache.stderr.txt >&2)
 
 test:
   override:
-    - ./verify.sh
+    - docker login -e $DOCKER_EMAIL -u $DOCKER_USER -p $DOCKER_PASS quay.io:
+        parallel: true
+    - case $CIRCLE_NODE_INDEX in 0) ./circle.sh test centos-6 centos:6 ;; 1) ./circle.sh test debian none ;; esac:
+        parallel: true
