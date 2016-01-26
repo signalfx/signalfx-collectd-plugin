@@ -41,6 +41,7 @@ function do_test() {
 
   ./verify.sh
 
+  # now do the real build
   if [ "$SFX_BUILD_DOCKER" == "none" ]; then
     export JOB_NAME=cr_"$CIRCLE_PROJECT_REPONAME"-"$SFX_BUILD_PLATFORM"
     "$BASE_DIR"/collectd-build-ubuntu/build-plugin/sfx_scripts/jenkins-build
