@@ -24,5 +24,5 @@ test:
   override:
     - docker login -e $DOCKER_EMAIL -u $DOCKER_USER -p $DOCKER_PASS quay.io:
         parallel: true
-    - case $CIRCLE_NODE_INDEX in 0) ./circle.sh test centos-6 centos:6 ;; 1) ./circle.sh test debian none ;; esac:
+    - case $CIRCLE_NODE_INDEX in 0) ./circle.sh test centos-6 centos:6 ;; 1) ./circle.sh test centos-7 centos:7 ;; 2) ./circle.sh test AWS_EC2_Linux_2014_09 quay.io/signalfuse/collectd-build-amazon-linux-2014-09 ;; 3) ./circle.sh test AWS_EC2_Linux_2015_03 quay.io/signalfuse/collectd-build-amazon-linux-2015-03 ;; 4) ./circle.sh test AWS_EC2_Linux_2015_09 quay.io/signalfuse/collectd-build-amazon-linux-2015-09 ;; 5) ./circle.sh test debian none ;; esac:
         parallel: true
