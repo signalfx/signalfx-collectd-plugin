@@ -28,7 +28,7 @@ function do_cache() {
   gem install mdl
 
   clone_repo git@github.com:signalfx/collectd-build-ubuntu.git "$BASE_DIR"/collectd-build-ubuntu origin/testci
-  ## clone_repo git@github.com:signalfx/collectd-build-rpm.git "$BASE_DIR"/collectd-build-rpm origin/testci
+  clone_repo git@github.com:signalfx/collectd-build-rpm.git "$BASE_DIR"/collectd-build-rpm origin/testci
 }
 
 # Test phase of circleci - this does builds
