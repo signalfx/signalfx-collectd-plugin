@@ -18,6 +18,7 @@ LoadPlugin python
     Token "<<<<<<INSERT_TOKEN_HERE>>>>>>"
     Notifications true
     NotifyLevel "OKAY"
+    DPM true
   </Module>
 </Plugin>
 ```
@@ -38,6 +39,8 @@ For metadata:
   this plugin, set to the appropriate level. "OKAY" would mean all
   notifications are emitted.  "ERROR" would just be error.  "WARNING" would
   include "ERROR" and "WARNING".
+* DPM: would you like the plugin to give you merics on your dpm on a per plugin
+  basis? Default is false.  Metric name in is gauge.sf.host-dpm.
 
 For DogstatsD support:
 
