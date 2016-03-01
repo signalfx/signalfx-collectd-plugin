@@ -1,5 +1,10 @@
+0.0.13 / 2016-02-29
+===================
+
+* add Utilization metrics behind flag defaulted to true
+* update sf.host-response.max to include the timeout times
+
 0.0.12 / 2016-01-15
-==================
 
 * change uptime to plugin uptime
 * quiet a few more top exceptions

@@ -53,7 +53,7 @@ PLUGIN_NAME = 'signalfx-metadata'
 API_TOKEN = ""
 TIMEOUT = 3
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.12"
+VERSION = "0.0.13"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
@@ -65,15 +65,25 @@ LAST = 0
 AWS = True
 PROCESS_INFO = True
 DPM = False
+UTILIZATION = True
 INTERVAL = 10
-FUDGE = 1.0  # fudge to check intervals
 HOST = ""
 UP = time.time()
 
 RESPONSE_LOCK = threading.Lock()
+METRIC_LOCK = threading.Lock()
 MAX_RESPONSE = 0
 RESPONSE_ERRORS = 0
 DATAPOINT_COUNT = {}
+
+CPU_HISTORY = {}
+CPU_TOTAL = 0
+CPU_USED = 0
+
+MEMORY_HISTORY = {}
+DISK_HISTORY = {}
+DISK_IO_HISTORY = {}
+NETWORK_HISTORY = {}
 
 DOGSTATSD_INSTANCE = collectd_dogstatsd.DogstatsDCollectD(collectd)
 
@@ -140,6 +150,9 @@ def plugin_config(conf):
         elif kv.key == 'ProcessInfo':
             global PROCESS_INFO
             PROCESS_INFO = kv.values[0]
+        elif kv.key == 'Utilization':
+            global UTILIZATION
+            UTILIZATION = kv.values[0]
         elif kv.key == 'DPM':
             global DPM
             DPM = kv.values[0]
@@ -166,24 +179,77 @@ def plugin_config(conf):
             elif string.lower(kv.values[0]) == "failure":
                 NOTIFY_LEVEL = 1
 
+    collectd.register_read(send, INTERVAL)
+
 
 def compact(thing):
     return json.dumps(thing, separators=(',', ':'))
 
 
+def send_aggregation():
+    global UTILIZATION
+    if not UTILIZATION:
+        return
+
+    try:
+        with METRIC_LOCK:
+            if len(CPU_HISTORY) == 8:
+                global CPU_TOTAL, CPU_USED
+                total = sum(sum(c) for c in CPU_HISTORY.values())
+                idle = sum(CPU_HISTORY["cpu.idle"])
+                used = total - idle
+                used_diff = used - CPU_USED
+                total_diff = total - CPU_TOTAL
+                if total_diff == 0:
+                    percent = 0
+                else:
+                    percent = 1.0 * used_diff / total_diff * 100
+                CPU_USED = used
+                CPU_TOTAL = total
+                put_val("utilization", "", [percent, "cpu.utilization"])
+            if len(MEMORY_HISTORY) == 6:
+                free = sum(MEMORY_HISTORY["memory.free"])
+                total = sum(sum(c) for c in MEMORY_HISTORY.values())
+                used = total - free
+                percent = 1.0 * used / total * 100
+                put_val("utilization", "", [percent, "memory.utilization"])
+            for plugin_instance, v in DISK_HISTORY.iteritems():
+                if len(v) == 3:
+                    used = sum(v["df_complex.used"])
+                    free = sum(v["df_complex.free"])
+                    total = used + free
+                    percent = 1.0 * used / total * 100
+                    put_val(plugin_instance, "", [percent, "disk.utilization"])
+            # don't sent on first iteration even if we have history, it's going
+            # to be wrong
+            if NEXT_METADATA_SEND and NETWORK_HISTORY:
+                network_total = sum(sum(v["if_octets"])
+                                    for v in NETWORK_HISTORY.values())
+                put_val("summation", "", [network_total, "network.total"])
+            if NEXT_METADATA_SEND and DISK_IO_HISTORY:
+                network_total = sum(sum(v["disk_ops"])
+                                    for v in DISK_IO_HISTORY.values())
+                put_val("summation", "", [network_total, "disk_ops.total"])
+    except TypeError:
+        UTILIZATION = False
+        log("ERROR: Utilization features have been disabled because TypesDB" +
+            " hasn't been specified")
+        log("To use the utilization features of this plugin, please update" +
+            " the top of your config to include" +
+            " 'TypesDB \"/opt/signalfx-collectd-plugin/types.db.plugin\"'")
+
+
 def send():
     """
-    Send proof-of-life datapoint, top, and notifications if interval elapsed
+    Sends datapoints and metadata events
 
     dimensions existing
     """
-    global LAST
-    DOGSTATSD_INSTANCE.read_callback()
-    diff = time.time() - LAST + FUDGE
-    if diff < INTERVAL:
-        return
 
-    send_datapoint()
+    send_aggregation()
+    send_datapoints()
+    DOGSTATSD_INSTANCE.read_callback()
+
     send_top()
 
     # race condition with host dimension existing
@@ -203,6 +269,7 @@ def send():
             NEXT_METADATA_SEND = time.time() + NEXT_METADATA_SEND_INTERVAL[0]
         log("till next metadata " + str(NEXT_METADATA_SEND - time.time()))
 
+    global LAST
     LAST = time.time()
 
 
@@ -553,20 +620,19 @@ def map_diff(host_info, old_host_info):
     return diff
 
 
-def put_val(pname, metric, val):
+def put_val(plugin_instance, type_instance, val, plugin=PLUGIN_NAME):
     """Create collectd metric"""
 
     if __name__ != "__main__":
-        collectd.Values(plugin=PLUGIN_NAME,
-                        plugin_instance=pname,
-                        meta={'0': True},
+        collectd.Values(plugin=plugin,
+                        plugin_instance=plugin_instance,
                         type=val[1].lower(),
-                        type_instance=metric,
+                        type_instance=type_instance,
                         values=[val[0]]).dispatch()
     else:
         h = platform.node()
-        print('PUTVAL %s/%s/%s-%s interval=%d N:%s' % (
-            h, PLUGIN_NAME, val[1].lower(), metric, INTERVAL, val[0]))
+        print('PUTVAL %s/%s/%s-%s N:%s' % (
+            h, PLUGIN_NAME, val[1].lower(), type_instance, val[0]))
 
 
 def get_uptime():
@@ -574,11 +640,11 @@ def get_uptime():
     return time.time() - UP
 
 
-def send_datapoint():
+def send_datapoints():
     """write proof-of-life datapoint"""
     put_val("", "sf.host-plugin_uptime", [get_uptime(), "gauge"])
     global MAX_RESPONSE
-    max = MAX_RESPONSE
+    maximum = MAX_RESPONSE
     MAX_RESPONSE = 0
     if DPM:
         global DATAPOINT_COUNT
@@ -593,8 +659,8 @@ def send_datapoint():
             for k, v in dpm.items():
                 put_val(k, "sf.host-dpm", [v, "gauge"])
 
-    if max:
-        put_val("", "sf.host-response.max", [max, "gauge"])
+    if maximum:
+        put_val("", "sf.host-response.max", [maximum, "gauge"])
 
     put_val("", "sf.host-response.errors", [RESPONSE_ERRORS, "counter"])
 
@@ -714,19 +780,20 @@ def receive_notifications(notif):
     headers = {"Content-Type": "application/json"}
     if API_TOKEN != "":
         headers["X-SF-TOKEN"] = API_TOKEN
+    start = time.time()
     try:
-        start = time.time()
         req = urllib2.Request(POST_URL, data, headers)
         r = urllib2.urlopen(req, timeout=TIMEOUT)
         sys.stdout.write(string.strip(r.read()))
-        diff = time.time() - start
-        update_response_times(diff * 1000000.0)
     except Exception:
         t, e = sys.exc_info()[:2]
         sys.stdout.write(str(e))
         log("unsuccessful response: %s" % str(e))
         global RESPONSE_ERRORS
         RESPONSE_ERRORS += 1
+    finally:
+        diff = time.time() - start
+        update_response_times(diff * 1000000.0)
 
 
 def receive_datapoint(values_obj):
@@ -734,6 +801,36 @@ def receive_datapoint(values_obj):
         global DATAPOINT_COUNT
         DATAPOINT_COUNT.setdefault(values_obj.plugin, 0)
         DATAPOINT_COUNT[values_obj.plugin] += len(values_obj.values)
+
+    if not UTILIZATION:
+        return
+
+    with METRIC_LOCK:
+        if values_obj.plugin == "aggregation" and values_obj.type \
+                == "cpu" and values_obj.plugin_instance == "cpu-average":
+            metric = values_obj.type + "." + values_obj.type_instance
+            global CPU_HISTORY
+            CPU_HISTORY[metric] = values_obj.values
+        elif values_obj.plugin == "memory" and values_obj.type == "memory":
+            metric = values_obj.type + "." + values_obj.type_instance
+            global MEMORY_HISTORY
+            MEMORY_HISTORY[metric] = values_obj.values
+        elif values_obj.plugin == "df" and values_obj.type == "df_complex":
+            metric = values_obj.type + "." + values_obj.type_instance
+            global DISK_HISTORY
+            metric_history = \
+                DISK_HISTORY.setdefault(values_obj.plugin_instance, {})
+            metric_history[metric] = values_obj.values
+        elif (values_obj.plugin == "interface"):
+            global NETWORK_HISTORY
+            metric_history = \
+                NETWORK_HISTORY.setdefault(values_obj.plugin_instance, {})
+            metric_history[values_obj.type] = values_obj.values
+        elif (values_obj.plugin == "disk"):
+            global DISK_IO_HISTORY
+            metric_history = \
+                DISK_IO_HISTORY.setdefault(values_obj.plugin_instance, {})
+            metric_history[values_obj.type] = values_obj.values
 
 
 def restore_sigchld():
@@ -759,7 +856,6 @@ if __name__ != "__main__":
     collectd.register_notification(steal_host_from_notifications)
     collectd.register_init(restore_sigchld)
     collectd.register_config(plugin_config)
-    collectd.register_read(send)
     collectd.register_shutdown(DOGSTATSD_INSTANCE.register_shutdown)
 
 else:
