@@ -193,43 +193,12 @@ def send_aggregation():
 
     try:
         with METRIC_LOCK:
-            if len(CPU_HISTORY) == 8:
-                global CPU_TOTAL, CPU_USED
-                total = sum(sum(c) for c in CPU_HISTORY.values())
-                idle = sum(CPU_HISTORY["cpu.idle"])
-                used = total - idle
-                used_diff = used - CPU_USED
-                total_diff = total - CPU_TOTAL
-                if total_diff == 0:
-                    percent = 0
-                else:
-                    percent = 1.0 * used_diff / total_diff * 100
-                CPU_USED = used
-                CPU_TOTAL = total
-                put_val("utilization", "", [percent, "cpu.utilization"])
-            if len(MEMORY_HISTORY) == 6:
-                free = sum(MEMORY_HISTORY["memory.free"])
-                total = sum(sum(c) for c in MEMORY_HISTORY.values())
-                used = total - free
-                percent = 1.0 * used / total * 100
-                put_val("utilization", "", [percent, "memory.utilization"])
-            for plugin_instance, v in DISK_HISTORY.iteritems():
-                if len(v) == 3:
-                    used = sum(v["df_complex.used"])
-                    free = sum(v["df_complex.free"])
-                    total = used + free
-                    percent = 1.0 * used / total * 100
-                    put_val(plugin_instance, "", [percent, "disk.utilization"])
-            # don't sent on first iteration even if we have history, it's going
-            # to be wrong
-            if NEXT_METADATA_SEND and NETWORK_HISTORY:
-                network_total = sum(sum(v["if_octets"])
-                                    for v in NETWORK_HISTORY.values())
-                put_val("summation", "", [network_total, "network.total"])
-            if NEXT_METADATA_SEND and DISK_IO_HISTORY:
-                network_total = sum(sum(v["disk_ops"])
-                                    for v in DISK_IO_HISTORY.values())
-                put_val("summation", "", [network_total, "disk_ops.total"])
+            emit_cpu_utilization()
+            emit_memory_utilization()
+            emit_disk_utilization()
+            emit_network_total()
+            emit_disk_total()
+
     except TypeError:
         UTILIZATION = False
         log("ERROR: Utilization features have been disabled because TypesDB" +
@@ -237,6 +206,95 @@ def send_aggregation():
         log("To use the utilization features of this plugin, please update" +
             " the top of your config to include" +
             " 'TypesDB \"/opt/signalfx-collectd-plugin/types.db.plugin\"'")
+
+
+def emit_total(HISTORY, field, metric):
+    # don't sent on first iteration even if we have history, it's going
+    # to be wrong
+    if NEXT_METADATA_SEND and HISTORY:
+        total = sum(sum(v[field]) for v in HISTORY.values())
+        put_val("summation", "", [total, metric])
+
+
+def emit_utilization(used, total, metric, plugin_instance="utilization"):
+    if total == 0:
+        percent = 0
+    else:
+        percent = 1.0 * used / total * 100
+    put_val(plugin_instance, "", [percent, metric])
+
+
+def emit_disk_total():
+    """
+    emits a total for all disk iops that have occurred.
+
+    :return: None
+    """
+    emit_total(DISK_IO_HISTORY, "disk_ops", "disk_ops.total")
+
+
+def emit_network_total():
+    """
+    emits a total for all network bytes that have occurred.
+
+    :return: None
+    """
+    emit_total(NETWORK_HISTORY, "if_octets", "network.total")
+
+
+def emit_disk_utilization():
+    """
+    emit disk utilization metrics when we've seen all the disk metrics we need
+    Note that this emits one utilization metric for each mount point and a
+    total utilization.
+
+    :return: None
+    """
+    used_total = 0
+    total_total = 0
+    for plugin_instance, v in DISK_HISTORY.iteritems():
+
+        if len(v) == 3:
+            used = v["df_complex.used"][0]
+            free = v["df_complex.free"][0]
+            total = used + free
+            emit_utilization(used, total, "disk.utilization", plugin_instance)
+            total_total += total
+            used_total += used
+    if used_total:
+        emit_utilization(used_total, total_total, "disk.summary_utilization")
+
+
+def emit_memory_utilization():
+    """
+    emit memory utilization metric when we've seen all the memory metrics we
+    need
+
+    :return: None
+    """
+    if len(MEMORY_HISTORY) == 6:
+        total = sum(c[0] for c in MEMORY_HISTORY.values())
+        used = total - MEMORY_HISTORY["memory.free"][0]
+        emit_utilization(used, total, "memory.utilization")
+
+
+def emit_cpu_utilization():
+    """
+    emit cpu utilization metric when we've seen all the cpu aggregation metrics
+    we need
+
+    :return: None
+    """
+    if len(CPU_HISTORY) == 8:
+        global CPU_TOTAL, CPU_USED
+        total = sum(c[0] for c in CPU_HISTORY.values())
+        idle = CPU_HISTORY["cpu.idle"][0]
+        used = total - idle
+        used_diff = used - CPU_USED
+        total_diff = total - CPU_TOTAL
+        CPU_USED = used
+        CPU_TOTAL = total
+        emit_utilization(used_diff, total_diff, "cpu.utilization")
 
 
 def send():
