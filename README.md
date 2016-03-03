@@ -8,6 +8,7 @@ Example Config:
 
 ```
 LoadPlugin python
+TypesDB "/opt/signalfx-collectd-plugin/types.db.plugin"
 <Plugin python>
   ModulePath "/opt/signalfx-collectd-plugin"
   LogTraces true
@@ -19,6 +20,8 @@ LoadPlugin python
     Notifications true
     NotifyLevel "OKAY"
     DPM true
+    Utilization true
+    Interval 10
   </Module>
 </Plugin>
 ```
@@ -41,6 +44,8 @@ For metadata:
   include "ERROR" and "WARNING".
 * DPM: would you like the plugin to give you merics on your dpm on a per plugin
   basis? Default is false.  Metric name in is gauge.sf.host-dpm.
+* Utilization: would you like the plugin to send in utilization metrics?
+  Default is true.
 
 For DogstatsD support:
 
