@@ -1,5 +1,6 @@
 cpu.utilization        value:GAUGE:0:100.1
 disk.utilization       value:GAUGE:0:100.1
+disk.summary_utilization       value:GAUGE:0:100.1
 disk_ops.total         value:DERIVE:0:U
 memory.utilization     value:GAUGE:0:100.1
 network.total          value:DERIVE:0:U
