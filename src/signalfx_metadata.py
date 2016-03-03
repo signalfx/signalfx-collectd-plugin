@@ -686,11 +686,12 @@ def put_val(plugin_instance, type_instance, val, plugin=PLUGIN_NAME):
                         plugin_instance=plugin_instance,
                         type=val[1].lower(),
                         type_instance=type_instance,
+                        interval=INTERVAL,
                         values=[val[0]]).dispatch()
     else:
         h = platform.node()
-        print('PUTVAL %s/%s/%s-%s N:%s' % (
-            h, PLUGIN_NAME, val[1].lower(), type_instance, val[0]))
+        print('PUTVAL %s/%s/%s-%s interval=%d N:%s' % (
+            h, PLUGIN_NAME, val[1].lower(), type_instance, INTERVAL, val[0]))
 
 
 def get_uptime():
@@ -879,12 +880,12 @@ def receive_datapoint(values_obj):
             metric_history = \
                 DISK_HISTORY.setdefault(values_obj.plugin_instance, {})
             metric_history[metric] = values_obj.values
-        elif (values_obj.plugin == "interface"):
+        elif values_obj.plugin == "interface":
             global NETWORK_HISTORY
             metric_history = \
                 NETWORK_HISTORY.setdefault(values_obj.plugin_instance, {})
             metric_history[values_obj.type] = values_obj.values
-        elif (values_obj.plugin == "disk"):
+        elif values_obj.plugin == "disk":
             global DISK_IO_HISTORY
             metric_history = \
                 DISK_IO_HISTORY.setdefault(values_obj.plugin_instance, {})
