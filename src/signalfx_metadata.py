@@ -285,8 +285,8 @@ def emit_cpu_utilization():
 
     :return: None
     """
+    global CPU_TOTAL, CPU_USED, CPU_HISTORY
     if len(CPU_HISTORY) == 8:
-        global CPU_TOTAL, CPU_USED
         total = sum(c[0] for c in CPU_HISTORY.values())
         idle = CPU_HISTORY["cpu.idle"][0]
         used = total - idle
@@ -295,6 +295,7 @@ def emit_cpu_utilization():
         CPU_USED = used
         CPU_TOTAL = total
         emit_utilization(used_diff, total_diff, "cpu.utilization")
+        CPU_HISTORY = {}
 
 
 def send():
