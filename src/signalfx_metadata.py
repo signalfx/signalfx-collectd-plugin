@@ -53,7 +53,7 @@ PLUGIN_NAME = 'signalfx-metadata'
 API_TOKEN = ""
 TIMEOUT = 3
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.13"
+VERSION = "0.0.14"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
@@ -156,8 +156,6 @@ def plugin_config(conf):
         elif kv.key == 'DPM':
             global DPM
             DPM = kv.values[0]
-            if DPM:
-                collectd.register_write(receive_datapoint)
         elif kv.key == 'URL':
             global POST_URL
             POST_URL = kv.values[0]
@@ -178,6 +176,9 @@ def plugin_config(conf):
                 NOTIFY_LEVEL = 2
             elif string.lower(kv.values[0]) == "failure":
                 NOTIFY_LEVEL = 1
+
+    if DPM or UTILIZATION:
+        collectd.register_write(receive_datapoint)
 
     collectd.register_read(send, INTERVAL)
 
@@ -857,10 +858,11 @@ def receive_notifications(notif):
 
 
 def receive_datapoint(values_obj):
-    with RESPONSE_LOCK:
-        global DATAPOINT_COUNT
-        DATAPOINT_COUNT.setdefault(values_obj.plugin, 0)
-        DATAPOINT_COUNT[values_obj.plugin] += len(values_obj.values)
+    if DPM:
+        with RESPONSE_LOCK:
+            global DATAPOINT_COUNT
+            DATAPOINT_COUNT.setdefault(values_obj.plugin, 0)
+            DATAPOINT_COUNT[values_obj.plugin] += len(values_obj.values)
 
     if not UTILIZATION:
         return
