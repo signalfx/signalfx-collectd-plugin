@@ -1,5 +1,9 @@
-0.0.13 / 2016-02-29
+0.0.14 / 2016-03-09
 ===================
+
+* fix bug with utilization metrics not showing without DPM
+
+0.0.13 / 2016-02-29
 
 * add Utilization metrics behind flag defaulted to true
 * update sf.host-response.max to include the timeout times
