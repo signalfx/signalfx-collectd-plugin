@@ -687,6 +687,7 @@ def put_val(plugin_instance, type_instance, val, plugin=PLUGIN_NAME):
         collectd.Values(plugin=plugin,
                         plugin_instance=plugin_instance,
                         type=val[1].lower(),
+			meta={'0': True},
                         type_instance=type_instance,
                         interval=INTERVAL,
                         values=[val[0]]).dispatch()

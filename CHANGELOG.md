@@ -2,6 +2,7 @@
 ===================
 
 * fix bug with utilization metrics not showing without DPM
+* fix bug where plugin doesn't emit metrics on old collectds
 
 0.0.13 / 2016-02-29
 
