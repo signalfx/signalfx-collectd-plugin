@@ -45,7 +45,9 @@ For metadata:
 * DPM: would you like the plugin to give you merics on your dpm on a per plugin
   basis? Default is false.  Metric name in is gauge.sf.host-dpm.
 * Utilization: would you like the plugin to send in utilization metrics?
-  Default is true.
+  Default is true. If you are collecting metrics at a higher rate than the
+  default for cpu, memory, disk or network, it's prudent to set this plugin's
+  Interval to the highest rate to get optimal utilization metrics.
 
 For DogstatsD support:
 
