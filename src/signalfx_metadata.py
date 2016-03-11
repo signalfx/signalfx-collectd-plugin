@@ -70,8 +70,8 @@ INTERVAL = 10
 HOST = ""
 UP = time.time()
 
-RESPONSE_LOCK = threading.Lock()
-METRIC_LOCK = threading.Lock()
+RESPONSE_LOCK = threading.RLock()
+METRIC_LOCK = threading.RLock()
 MAX_RESPONSE = 0
 RESPONSE_ERRORS = 0
 DATAPOINT_COUNT = {}
@@ -187,18 +187,19 @@ def compact(thing):
     return json.dumps(thing, separators=(',', ':'))
 
 
-def send_aggregation():
+def send_aggregation(agg=None):
     global UTILIZATION
     if not UTILIZATION:
         return
 
     try:
         with METRIC_LOCK:
-            emit_cpu_utilization()
-            emit_memory_utilization()
-            emit_disk_utilization()
-            emit_network_total()
-            emit_disk_total()
+            if not agg:
+                emit_network_total()
+                emit_disk_total()
+            else:
+                agg()
+
 
     except TypeError:
         UTILIZATION = False
@@ -253,6 +254,7 @@ def emit_disk_utilization():
     """
     used_total = 0
     total_total = 0
+    total = True
     for plugin_instance, v in DISK_HISTORY.iteritems():
 
         if len(v) == 3:
@@ -262,7 +264,10 @@ def emit_disk_utilization():
             emit_utilization(used, total, "disk.utilization", plugin_instance)
             total_total += total
             used_total += used
-    if used_total:
+            DISK_HISTORY[plugin_instance] = {}
+        else:
+            total = False
+    if used_total and total:
         emit_utilization(used_total, total_total, "disk.summary_utilization")
 
 
@@ -273,10 +278,12 @@ def emit_memory_utilization():
 
     :return: None
     """
+    global MEMORY_HISTORY
     if len(MEMORY_HISTORY) == 6:
         total = sum(c[0] for c in MEMORY_HISTORY.values())
         used = total - MEMORY_HISTORY["memory.free"][0]
         emit_utilization(used, total, "memory.utilization")
+        MEMORY_HISTORY = {}
 
 
 def emit_cpu_utilization():
@@ -874,16 +881,19 @@ def receive_datapoint(values_obj):
             metric = values_obj.type + "." + values_obj.type_instance
             global CPU_HISTORY
             CPU_HISTORY[metric] = values_obj.values
+            send_aggregation(emit_cpu_utilization)
         elif values_obj.plugin == "memory" and values_obj.type == "memory":
             metric = values_obj.type + "." + values_obj.type_instance
             global MEMORY_HISTORY
             MEMORY_HISTORY[metric] = values_obj.values
+            send_aggregation(emit_memory_utilization)
         elif values_obj.plugin == "df" and values_obj.type == "df_complex":
             metric = values_obj.type + "." + values_obj.type_instance
             global DISK_HISTORY
             metric_history = \
                 DISK_HISTORY.setdefault(values_obj.plugin_instance, {})
             metric_history[metric] = values_obj.values
+            send_aggregation(emit_disk_utilization)
         elif values_obj.plugin == "interface":
             global NETWORK_HISTORY
             metric_history = \
