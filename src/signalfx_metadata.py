@@ -53,7 +53,7 @@ PLUGIN_NAME = 'signalfx-metadata'
 API_TOKEN = ""
 TIMEOUT = 3
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.14"
+VERSION = "0.0.15"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
@@ -209,12 +209,19 @@ def send_aggregation():
             " 'TypesDB \"/opt/signalfx-collectd-plugin/types.db.plugin\"'")
 
 
+STARTING = {}
+
+
 def emit_total(HISTORY, field, metric):
-    # don't sent on first iteration even if we have history, it's going
+    # don't send on first iteration even if we have history, it's going
     # to be wrong
     if NEXT_METADATA_SEND and HISTORY:
         total = sum(sum(v[field]) for v in HISTORY.values())
-        put_val("summation", "", [total, metric])
+        if metric in STARTING:
+            starting = STARTING[metric]
+            put_val("summation", "", [total - starting, metric])
+        else:
+            STARTING[metric] = total
 
 
 def emit_utilization(used, total, metric, plugin_instance="utilization"):
@@ -687,7 +694,7 @@ def put_val(plugin_instance, type_instance, val, plugin=PLUGIN_NAME):
         collectd.Values(plugin=plugin,
                         plugin_instance=plugin_instance,
                         type=val[1].lower(),
-			meta={'0': True},
+                        meta={'0': True},
                         type_instance=type_instance,
                         interval=INTERVAL,
                         values=[val[0]]).dispatch()

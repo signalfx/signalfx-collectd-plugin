@@ -1,5 +1,9 @@
-0.0.14 / 2016-03-09
+0.0.15 / 2016-03-11
 ===================
+
+* fix bug with summation metrics first points being wild
+
+0.0.14 / 2016-03-09
 
 * fix bug with utilization metrics not showing without DPM
 * fix bug where plugin doesn't emit metrics on old collectds
