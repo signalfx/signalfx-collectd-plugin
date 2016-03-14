@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 import zlib
+from urlparse import urlparse
 
 import psutil
 
@@ -63,6 +64,7 @@ NEXT_METADATA_SEND_INTERVAL = \
     [1, 60, 3600 + random.randint(0, 60), 86400 + random.randint(0, 600)]
 LAST = 0
 AWS = True
+AWS_SET = False
 PROCESS_INFO = True
 DPM = False
 UTILIZATION = True
@@ -181,6 +183,7 @@ def plugin_config(conf):
         collectd.register_write(receive_datapoint)
 
     collectd.register_read(send, INTERVAL)
+    set_aws_url(get_aws_info())
 
 
 def compact(thing):
@@ -466,6 +469,22 @@ def get_aws_info(host_info={}):
         AWS = False
 
     return host_info
+
+
+def set_aws_url(host_info):
+    global AWS_SET, POST_URL
+    if AWS and not AWS_SET:
+        result = urlparse(POST_URL)
+        if "sfxdim_AWSUniqueId" not in result.query:
+            dim = "sfxdim_AWSUniqueId=%s_%s_%s" % \
+                  (host_info["aws_instance_id"],
+                   host_info["aws_region"], host_info["aws_account_id"])
+            if result.query:
+                POST_URL += "&%s" % dim
+            else:
+                POST_URL += "?%s" % dim
+            log("adding %s to post_url for uniqueness" % dim)
+        AWS_SET = True
 
 
 def popen(command):

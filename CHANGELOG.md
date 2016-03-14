@@ -2,6 +2,7 @@
 ===================
 
 * fix bug with summation metrics first points being wild
+* add AWSUniqueId if not present, and we're an AWS box
 
 0.0.14 / 2016-03-09
 
