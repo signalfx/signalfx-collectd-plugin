@@ -2,6 +2,8 @@
 ===================
 
 * fix bug with summation metrics first points being wild
+* detect intervals for each type of utilization data and emit on
+  same schedule
 * add AWSUniqueId if not present, and we're an AWS box
 
 0.0.14 / 2016-03-09
