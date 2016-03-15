@@ -1,5 +1,9 @@
-0.0.15 / 2016-03-11
+0.0.16 / 2016-03-15
 ===================
+
+* fix bug where memory.utilization wasn't always reported
+
+0.0.15 / 2016-03-11
 
 * fix bug with summation metrics first points being wild
 * detect intervals for each type of utilization data and emit on
