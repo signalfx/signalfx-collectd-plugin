@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 import zlib
+from urlparse import urlparse
 
 import psutil
 
@@ -63,10 +64,16 @@ NEXT_METADATA_SEND_INTERVAL = \
     [1, 60, 3600 + random.randint(0, 60), 86400 + random.randint(0, 600)]
 LAST = 0
 AWS = True
+AWS_SET = False
 PROCESS_INFO = True
 DPM = False
 UTILIZATION = True
 INTERVAL = 10
+CPU_INTERVAL = False
+MEMORY_INTERVAL = False
+DF_INTERVAL = False
+NETWORK_INTERVAL = False
+DISK_INTERVAL = False
 HOST = ""
 UP = time.time()
 
@@ -181,32 +188,11 @@ def plugin_config(conf):
         collectd.register_write(receive_datapoint)
 
     collectd.register_read(send, INTERVAL)
+    set_aws_url(get_aws_info())
 
 
 def compact(thing):
     return json.dumps(thing, separators=(',', ':'))
-
-
-def send_aggregation():
-    global UTILIZATION
-    if not UTILIZATION:
-        return
-
-    try:
-        with METRIC_LOCK:
-            emit_cpu_utilization()
-            emit_memory_utilization()
-            emit_disk_utilization()
-            emit_network_total()
-            emit_disk_total()
-
-    except TypeError:
-        UTILIZATION = False
-        log("ERROR: Utilization features have been disabled because TypesDB" +
-            " hasn't been specified")
-        log("To use the utilization features of this plugin, please update" +
-            " the top of your config to include" +
-            " 'TypesDB \"/opt/signalfx-collectd-plugin/types.db.plugin\"'")
 
 
 STARTING = {}
@@ -238,7 +224,8 @@ def emit_disk_total():
 
     :return: None
     """
-    emit_total(DISK_IO_HISTORY, "disk_ops", "disk_ops.total")
+    with METRIC_LOCK:
+        emit_total(DISK_IO_HISTORY, "disk_ops", "disk_ops.total")
 
 
 def emit_network_total():
@@ -247,10 +234,11 @@ def emit_network_total():
 
     :return: None
     """
-    emit_total(NETWORK_HISTORY, "if_octets", "network.total")
+    with METRIC_LOCK:
+        emit_total(NETWORK_HISTORY, "if_octets", "network.total")
 
 
-def emit_disk_utilization():
+def emit_df_utilization():
     """
     emit disk utilization metrics when we've seen all the disk metrics we need
     Note that this emits one utilization metric for each mount point and a
@@ -260,17 +248,20 @@ def emit_disk_utilization():
     """
     used_total = 0
     total_total = 0
-    for plugin_instance, v in DISK_HISTORY.iteritems():
+    with METRIC_LOCK:
+        for plugin_instance, v in DISK_HISTORY.iteritems():
 
-        if len(v) == 3:
-            used = v["df_complex.used"][0]
-            free = v["df_complex.free"][0]
-            total = used + free
-            emit_utilization(used, total, "disk.utilization", plugin_instance)
-            total_total += total
-            used_total += used
-    if used_total:
-        emit_utilization(used_total, total_total, "disk.summary_utilization")
+            if len(v) == 3:
+                used = v["df_complex.used"][0]
+                free = v["df_complex.free"][0]
+                total = used + free
+                emit_utilization(used, total,
+                                 "disk.utilization", plugin_instance)
+                total_total += total
+                used_total += used
+        if used_total:
+            emit_utilization(used_total, total_total,
+                             "disk.summary_utilization")
 
 
 def emit_memory_utilization():
@@ -281,9 +272,10 @@ def emit_memory_utilization():
     :return: None
     """
     if len(MEMORY_HISTORY) == 6:
-        total = sum(c[0] for c in MEMORY_HISTORY.values())
-        used = total - MEMORY_HISTORY["memory.free"][0]
-        emit_utilization(used, total, "memory.utilization")
+        with METRIC_LOCK:
+            total = sum(c[0] for c in MEMORY_HISTORY.values())
+            used = total - MEMORY_HISTORY["memory.free"][0]
+            emit_utilization(used, total, "memory.utilization")
 
 
 def emit_cpu_utilization():
@@ -295,15 +287,16 @@ def emit_cpu_utilization():
     """
     global CPU_TOTAL, CPU_USED, CPU_HISTORY
     if len(CPU_HISTORY) == 8:
-        total = sum(c[0] for c in CPU_HISTORY.values())
-        idle = CPU_HISTORY["cpu.idle"][0]
-        used = total - idle
-        used_diff = used - CPU_USED
-        total_diff = total - CPU_TOTAL
-        CPU_USED = used
-        CPU_TOTAL = total
-        emit_utilization(used_diff, total_diff, "cpu.utilization")
-        CPU_HISTORY = {}
+        with METRIC_LOCK:
+            total = sum(c[0] for c in CPU_HISTORY.values())
+            idle = CPU_HISTORY["cpu.idle"][0]
+            used = total - idle
+            used_diff = used - CPU_USED
+            total_diff = total - CPU_TOTAL
+            CPU_USED = used
+            CPU_TOTAL = total
+            emit_utilization(used_diff, total_diff, "cpu.utilization")
+            CPU_HISTORY = {}
 
 
 def send():
@@ -313,7 +306,6 @@ def send():
     dimensions existing
     """
 
-    send_aggregation()
     send_datapoints()
     DOGSTATSD_INSTANCE.read_callback()
 
@@ -466,6 +458,22 @@ def get_aws_info(host_info={}):
         AWS = False
 
     return host_info
+
+
+def set_aws_url(host_info):
+    global AWS_SET, POST_URL
+    if AWS and not AWS_SET:
+        result = urlparse(POST_URL)
+        if "sfxdim_AWSUniqueId" not in result.query:
+            dim = "sfxdim_AWSUniqueId=%s_%s_%s" % \
+                  (host_info["aws_instance_id"],
+                   host_info["aws_region"], host_info["aws_account_id"])
+            if result.query:
+                POST_URL += "&%s" % dim
+            else:
+                POST_URL += "?%s" % dim
+            log("adding %s to post_url for uniqueness" % dim)
+        AWS_SET = True
 
 
 def popen(command):
@@ -690,18 +698,28 @@ def map_diff(host_info, old_host_info):
 def put_val(plugin_instance, type_instance, val, plugin=PLUGIN_NAME):
     """Create collectd metric"""
 
-    if __name__ != "__main__":
-        collectd.Values(plugin=plugin,
-                        plugin_instance=plugin_instance,
-                        type=val[1].lower(),
-                        meta={'0': True},
-                        type_instance=type_instance,
-                        interval=INTERVAL,
-                        values=[val[0]]).dispatch()
-    else:
-        h = platform.node()
-        print('PUTVAL %s/%s/%s-%s interval=%d N:%s' % (
-            h, PLUGIN_NAME, val[1].lower(), type_instance, INTERVAL, val[0]))
+    try:
+        if __name__ != "__main__":
+            collectd.Values(plugin=plugin,
+                            plugin_instance=plugin_instance,
+                            type=val[1].lower(),
+                            meta={'0': True},
+                            type_instance=type_instance,
+                            interval=INTERVAL,
+                            values=[val[0]]).dispatch()
+        else:
+            h = platform.node()
+            print('PUTVAL %s/%s/%s-%s interval=%d N:%s' % (
+                h, PLUGIN_NAME, val[1].lower(),
+                type_instance, INTERVAL, val[0]))
+    except TypeError:
+        global UTILIZATION
+        UTILIZATION = False
+        log("ERROR: Utilization features have been disabled because TypesDB" +
+            " hasn't been specified")
+        log("To use the utilization features of this plugin, please update" +
+            " the top of your config to include" +
+            " 'TypesDB \"/opt/signalfx-collectd-plugin/types.db.plugin\"'")
 
 
 def get_uptime():
@@ -881,26 +899,60 @@ def receive_datapoint(values_obj):
             metric = values_obj.type + "." + values_obj.type_instance
             global CPU_HISTORY
             CPU_HISTORY[metric] = values_obj.values
+            global CPU_INTERVAL
+            if not CPU_INTERVAL:
+                register_utilization(values_obj, emit_cpu_utilization, "cpu")
+                CPU_INTERVAL = True
+
         elif values_obj.plugin == "memory" and values_obj.type == "memory":
             metric = values_obj.type + "." + values_obj.type_instance
             global MEMORY_HISTORY
             MEMORY_HISTORY[metric] = values_obj.values
+            global MEMORY_INTERVAL
+            if not MEMORY_INTERVAL:
+                register_utilization(values_obj, emit_memory_utilization,
+                                     "memory")
+                MEMORY_INTERVAL = True
         elif values_obj.plugin == "df" and values_obj.type == "df_complex":
             metric = values_obj.type + "." + values_obj.type_instance
             global DISK_HISTORY
             metric_history = \
                 DISK_HISTORY.setdefault(values_obj.plugin_instance, {})
             metric_history[metric] = values_obj.values
+            global DF_INTERVAL
+            if not DF_INTERVAL:
+                register_utilization(values_obj, emit_df_utilization, "df")
+                DF_INTERVAL = True
         elif values_obj.plugin == "interface":
             global NETWORK_HISTORY
             metric_history = \
                 NETWORK_HISTORY.setdefault(values_obj.plugin_instance, {})
             metric_history[values_obj.type] = values_obj.values
+            global NETWORK_INTERVAL
+            if not NETWORK_INTERVAL:
+                register_utilization(values_obj, emit_network_total, "network")
+                NETWORK_INTERVAL = True
         elif values_obj.plugin == "disk":
             global DISK_IO_HISTORY
             metric_history = \
                 DISK_IO_HISTORY.setdefault(values_obj.plugin_instance, {})
             metric_history[values_obj.type] = values_obj.values
+            global DISK_INTERVAL
+            if not DISK_INTERVAL:
+                register_utilization(values_obj, emit_disk_total, "disk")
+                DISK_INTERVAL = True
+
+
+def register_utilization(values_obj, method, read_name):
+    if INTERVAL != values_obj.interval:
+        log("setting %s interval to " % read_name +
+            str(values_obj.interval))
+        collectd.register_read(method,
+                               values_obj.interval,
+                               name=PLUGIN_NAME + ".%s_read" % read_name)
+    else:
+        collectd.register_read(method, INTERVAL,
+                               name=PLUGIN_NAME + ".%s_read" % read_name)
 
 
 def restore_sigchld():
