@@ -54,7 +54,7 @@ PLUGIN_NAME = 'signalfx-metadata'
 API_TOKEN = ""
 TIMEOUT = 3
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.15"
+VERSION = "0.0.16"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
@@ -251,7 +251,7 @@ def emit_df_utilization():
     with METRIC_LOCK:
         for plugin_instance, v in DISK_HISTORY.iteritems():
 
-            if len(v) == 3:
+            if "df_complex.used" in v and "df_complex.free" in v:
                 used = v["df_complex.used"][0]
                 free = v["df_complex.free"][0]
                 total = used + free
@@ -271,7 +271,7 @@ def emit_memory_utilization():
 
     :return: None
     """
-    if len(MEMORY_HISTORY) == 6:
+    if "memory.free" in MEMORY_HISTORY and "memory.used" in MEMORY_HISTORY:
         with METRIC_LOCK:
             total = sum(c[0] for c in MEMORY_HISTORY.values())
             used = total - MEMORY_HISTORY["memory.free"][0]
@@ -286,7 +286,7 @@ def emit_cpu_utilization():
     :return: None
     """
     global CPU_TOTAL, CPU_USED, CPU_HISTORY
-    if len(CPU_HISTORY) == 8:
+    if "cpu.idle" in CPU_HISTORY and "cpu.system" in CPU_HISTORY:
         with METRIC_LOCK:
             total = sum(c[0] for c in CPU_HISTORY.values())
             idle = CPU_HISTORY["cpu.idle"][0]
