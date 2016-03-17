@@ -54,7 +54,7 @@ PLUGIN_NAME = 'signalfx-metadata'
 API_TOKEN = ""
 TIMEOUT = 3
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.16"
+VERSION = "0.0.17"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
@@ -84,13 +84,18 @@ RESPONSE_ERRORS = 0
 DATAPOINT_COUNT = {}
 
 CPU_HISTORY = {}
+CPU_DONE = []
 CPU_TOTAL = 0
 CPU_USED = 0
 
 MEMORY_HISTORY = {}
-DISK_HISTORY = {}
+MEMORY_DONE = []
+DF_HISTORY = {}
+DF_DONE = []
 DISK_IO_HISTORY = {}
+DISK_IO_DONE = []
 NETWORK_HISTORY = {}
+NETWORK_DONE = []
 
 DOGSTATSD_INSTANCE = collectd_dogstatsd.DogstatsDCollectD(collectd)
 
@@ -198,24 +203,22 @@ def compact(thing):
 STARTING = {}
 
 
-def emit_total(HISTORY, field, metric):
+def emit_total(DONE, field, metric, i=INTERVAL):
     # don't send on first iteration even if we have history, it's going
     # to be wrong
-    if NEXT_METADATA_SEND and HISTORY:
-        total = sum(sum(v[field]) for v in HISTORY.values())
-        if metric in STARTING:
-            starting = STARTING[metric]
-            put_val("summation", "", [total - starting, metric])
-        else:
-            STARTING[metric] = total
+
+    for t, m in DONE:
+        total = sum(sum(v[field]) for v in m.values())
+        put_val("summation", "", [total, metric], t=t, i=i)
 
 
-def emit_utilization(used, total, metric, plugin_instance="utilization"):
+def emit_utilization(used, total, metric, plugin_instance="utilization",
+                     t=0.0, i=INTERVAL):
     if total == 0:
         percent = 0
     else:
         percent = 1.0 * used / total * 100
-    put_val(plugin_instance, "", [percent, metric])
+    put_val(plugin_instance, "", [percent, metric], t=t, i=i)
 
 
 def emit_disk_total():
@@ -225,7 +228,9 @@ def emit_disk_total():
     :return: None
     """
     with METRIC_LOCK:
-        emit_total(DISK_IO_HISTORY, "disk_ops", "disk_ops.total")
+        global DISK_IO_DONE
+        emit_total(DISK_IO_DONE, "disk_ops", "disk_ops.total", i=DISK_INTERVAL)
+        DISK_IO_DONE = []
 
 
 def emit_network_total():
@@ -235,7 +240,10 @@ def emit_network_total():
     :return: None
     """
     with METRIC_LOCK:
-        emit_total(NETWORK_HISTORY, "if_octets", "network.total")
+        global NETWORK_DONE
+        emit_total(NETWORK_DONE, "if_octets", "network.total",
+                   i=NETWORK_INTERVAL)
+        NETWORK_DONE = []
 
 
 def emit_df_utilization():
@@ -248,10 +256,10 @@ def emit_df_utilization():
     """
     used_total = 0
     total_total = 0
+    global DF_DONE
     with METRIC_LOCK:
-        for plugin_instance, v in DISK_HISTORY.iteritems():
-
-            if "df_complex.used" in v and "df_complex.free" in v:
+        for t, m in DF_DONE:
+            for plugin_instance, v in m.iteritems():
                 used = v["df_complex.used"][0]
                 free = v["df_complex.free"][0]
                 total = used + free
@@ -259,9 +267,10 @@ def emit_df_utilization():
                                  "disk.utilization", plugin_instance)
                 total_total += total
                 used_total += used
-        if used_total:
-            emit_utilization(used_total, total_total,
-                             "disk.summary_utilization")
+            if used_total:
+                emit_utilization(used_total, total_total,
+                                 "disk.summary_utilization")
+        DF_DONE = []
 
 
 def emit_memory_utilization():
@@ -271,11 +280,14 @@ def emit_memory_utilization():
 
     :return: None
     """
-    if "memory.free" in MEMORY_HISTORY and "memory.used" in MEMORY_HISTORY:
-        with METRIC_LOCK:
-            total = sum(c[0] for c in MEMORY_HISTORY.values())
-            used = total - MEMORY_HISTORY["memory.free"][0]
-            emit_utilization(used, total, "memory.utilization")
+    global MEMORY_DONE
+    with METRIC_LOCK:
+        for t, m in MEMORY_DONE:
+            total = sum(c[0] for c in m.values())
+            used = total - m["memory.free"][0]
+            emit_utilization(used, total, "memory.utilization", t=t,
+                             i=MEMORY_INTERVAL)
+        MEMORY_DONE = []
 
 
 def emit_cpu_utilization():
@@ -285,18 +297,19 @@ def emit_cpu_utilization():
 
     :return: None
     """
-    global CPU_TOTAL, CPU_USED, CPU_HISTORY
-    if "cpu.idle" in CPU_HISTORY and "cpu.system" in CPU_HISTORY:
-        with METRIC_LOCK:
-            total = sum(c[0] for c in CPU_HISTORY.values())
-            idle = CPU_HISTORY["cpu.idle"][0]
+    global CPU_TOTAL, CPU_USED, CPU_DONE
+    with METRIC_LOCK:
+        for t, m in CPU_DONE:
+            total = sum(c[0] for c in m.values())
+            idle = m["cpu.idle"][0]
             used = total - idle
             used_diff = used - CPU_USED
             total_diff = total - CPU_TOTAL
             CPU_USED = used
             CPU_TOTAL = total
-            emit_utilization(used_diff, total_diff, "cpu.utilization")
-            CPU_HISTORY = {}
+            emit_utilization(used_diff, total_diff, "cpu.utilization", t=t,
+                             i=CPU_INTERVAL)
+        CPU_DONE = []
 
 
 def send():
@@ -695,17 +708,19 @@ def map_diff(host_info, old_host_info):
     return diff
 
 
-def put_val(plugin_instance, type_instance, val, plugin=PLUGIN_NAME):
+def put_val(plugin_instance, type_instance, val, plugin=PLUGIN_NAME, t=0.0,
+            i=INTERVAL):
     """Create collectd metric"""
 
     try:
         if __name__ != "__main__":
             collectd.Values(plugin=plugin,
+                            time=t,
                             plugin_instance=plugin_instance,
                             type=val[1].lower(),
                             meta={'0': True},
                             type_instance=type_instance,
-                            interval=INTERVAL,
+                            interval=i,
                             values=[val[0]]).dispatch()
         else:
             h = platform.node()
@@ -720,6 +735,7 @@ def put_val(plugin_instance, type_instance, val, plugin=PLUGIN_NAME):
         log("To use the utilization features of this plugin, please update" +
             " the top of your config to include" +
             " 'TypesDB \"/opt/signalfx-collectd-plugin/types.db.plugin\"'")
+        raise
 
 
 def get_uptime():
@@ -897,8 +913,15 @@ def receive_datapoint(values_obj):
         if values_obj.plugin == "aggregation" and values_obj.type \
                 == "cpu" and values_obj.plugin_instance == "cpu-average":
             metric = values_obj.type + "." + values_obj.type_instance
-            global CPU_HISTORY
-            CPU_HISTORY[metric] = values_obj.values
+            ti = values_obj.time
+            global CPU_HISTORY, CPU_DONE
+            if ti not in CPU_HISTORY:
+                for t in CPU_HISTORY:
+                    CPU_DONE.append((t, CPU_HISTORY[t]))
+                CPU_HISTORY = {}
+
+            cpu_time = CPU_HISTORY.setdefault(ti, {})
+            cpu_time[metric] = values_obj.values
             global CPU_INTERVAL
             if not CPU_INTERVAL:
                 register_utilization(values_obj, emit_cpu_utilization, "cpu")
@@ -906,8 +929,15 @@ def receive_datapoint(values_obj):
 
         elif values_obj.plugin == "memory" and values_obj.type == "memory":
             metric = values_obj.type + "." + values_obj.type_instance
-            global MEMORY_HISTORY
-            MEMORY_HISTORY[metric] = values_obj.values
+            ti = values_obj.time
+            global MEMORY_HISTORY, MEMORY_DONE
+            if ti not in MEMORY_HISTORY:
+                for t in MEMORY_HISTORY:
+                    MEMORY_DONE.append((t, MEMORY_HISTORY[t]))
+                MEMORY_HISTORY = {}
+
+            mem_time = MEMORY_HISTORY.setdefault(ti, {})
+            mem_time[metric] = values_obj.values
             global MEMORY_INTERVAL
             if not MEMORY_INTERVAL:
                 register_utilization(values_obj, emit_memory_utilization,
@@ -915,27 +945,48 @@ def receive_datapoint(values_obj):
                 MEMORY_INTERVAL = True
         elif values_obj.plugin == "df" and values_obj.type == "df_complex":
             metric = values_obj.type + "." + values_obj.type_instance
-            global DISK_HISTORY
+            ti = int(values_obj.time)
+            global DF_HISTORY, DF_DONE
+            if ti not in DF_HISTORY:
+                for t in DF_HISTORY:
+                    DF_DONE.append((t, DF_HISTORY[t]))
+                DF_HISTORY = {}
+
+            disk_time = DF_HISTORY.setdefault(ti, {})
+
             metric_history = \
-                DISK_HISTORY.setdefault(values_obj.plugin_instance, {})
+                disk_time.setdefault(values_obj.plugin_instance, {})
             metric_history[metric] = values_obj.values
+
             global DF_INTERVAL
             if not DF_INTERVAL:
                 register_utilization(values_obj, emit_df_utilization, "df")
                 DF_INTERVAL = True
         elif values_obj.plugin == "interface":
-            global NETWORK_HISTORY
+            ti = int(values_obj.time)
+            global NETWORK_HISTORY, NETWORK_DONE
+            if ti not in NETWORK_HISTORY:
+                for t in NETWORK_HISTORY:
+                    NETWORK_DONE.append((t, NETWORK_HISTORY[t]))
+                NETWORK_HISTORY = {}
+            network_time = NETWORK_HISTORY.setdefault(ti, {})
             metric_history = \
-                NETWORK_HISTORY.setdefault(values_obj.plugin_instance, {})
+                network_time.setdefault(values_obj.plugin_instance, {})
             metric_history[values_obj.type] = values_obj.values
             global NETWORK_INTERVAL
             if not NETWORK_INTERVAL:
                 register_utilization(values_obj, emit_network_total, "network")
                 NETWORK_INTERVAL = True
         elif values_obj.plugin == "disk":
-            global DISK_IO_HISTORY
+            ti = int(values_obj.time)
+            global DISK_IO_HISTORY, DISK_IO_DONE
+            if ti not in DISK_IO_HISTORY:
+                for t in DISK_IO_HISTORY:
+                    DISK_IO_DONE.append((t, DISK_IO_HISTORY[t]))
+                DISK_IO_HISTORY = {}
+            network_time = DISK_IO_HISTORY.setdefault(ti, {})
             metric_history = \
-                DISK_IO_HISTORY.setdefault(values_obj.plugin_instance, {})
+                network_time.setdefault(values_obj.plugin_instance, {})
             metric_history[values_obj.type] = values_obj.values
             global DISK_INTERVAL
             if not DISK_INTERVAL:

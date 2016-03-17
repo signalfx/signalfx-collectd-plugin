@@ -1,5 +1,9 @@
-0.0.16 / 2016-03-15
+0.0.17 / 2016-03-17
 ===================
+
+* quantize utilization metrics for better accuracy
+
+0.0.16 / 2016-03-15
 
 * fix bug where memory.utilization wasn't always reported
 
