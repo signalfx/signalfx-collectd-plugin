@@ -1,5 +1,10 @@
-0.0.17 / 2016-03-17
+0.0.18 / 2016-03-21
 ===================
+
+* refactory utilizations
+* add unit tests
+
+0.0.17 / 2016-03-17
 
 * quantize utilization metrics for better accuracy
 

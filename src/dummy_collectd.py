@@ -8,6 +8,7 @@ class DummyCollectd(object):
         self.registered_inits = []
         self.registered_configs = []
         self.registered_reads = []
+        self.registered_logs = []
         self.registered_shutdowns = []
         self.registered_notifications = []
         self.registered_flush = []
@@ -30,9 +31,15 @@ class DummyCollectd(object):
         assert self.is_running_tests
         self.registered_configs.append(callback)
 
-    def register_read(self, callback):
+    # pylint: disable=unused-argument
+    def register_read(self, callback, interval=10, name=""):
         assert self.is_running_tests
         self.registered_reads.append(callback)
+
+    # pylint: disable=unused-argument
+    def register_log(self, callback, interval=10, name=""):
+        assert self.is_running_tests
+        self.registered_logs.append(callback)
 
     def register_flush(self, callback):
         assert self.is_running_tests
@@ -90,7 +97,8 @@ class DummyCollectd(object):
             # We have to use 'type' to match collectd
             # need self2 b/c inner class
             def __init__(self2, host=None, plugin=None, plugin_instance=None,
-                         time=None, type=None, type_instance=None, meta=None):
+                         time=None, type=None, type_instance=None, meta=None,
+                         interval=None, values=None):
                 if not meta:
                     meta = {}
                 self2.host = host
@@ -99,7 +107,11 @@ class DummyCollectd(object):
                 self2.time = time
                 self2.type = type
                 self2.type_instance = type_instance
-                self2.values = []
+                if values:
+                    self2.values = values
+                else:
+                    self2.values = []
+                self2.interval = interval
                 self2.meta = meta
 
         class InnerValues(PluginData):
@@ -149,6 +161,9 @@ register_flush = INSTANCE.register_flush
 
 # pylint: disable=invalid-name
 register_shutdown = INSTANCE.register_shutdown
+
+# pylint: disable=invalid-name
+register_log = INSTANCE.register_log
 
 # pylint: disable=invalid-name
 debug = INSTANCE.debug
