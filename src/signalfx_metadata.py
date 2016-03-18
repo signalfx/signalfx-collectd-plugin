@@ -130,7 +130,7 @@ def debug(param):
     """ debug messages and understand if we're in collectd or a program """
     if DEBUG:
         if __name__ != '__main__':
-            collectd.info("%s: %s" % (PLUGIN_NAME, param))
+            collectd.info("%s: DEBUG %s" % (PLUGIN_NAME, param))
         else:
             sys.stderr.write("%s\n" % param)
 
@@ -228,7 +228,7 @@ def emit_total(DONE, field, metric):
         try:
             total = sum(sum(v[field]) for v in m.values())
             put_val("summation", "", [total, metric], t=t, i=1)
-            debug("%s summation %s %s" % (t, metric, total))
+            debug("%s summation %s %s %s" % (t, metric, total, m))
         except:
             t, e = sys.exc_info()[:2]
             debug("trying to emit %s failed %s %s %s" % (t, metric, e, m))
