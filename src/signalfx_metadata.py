@@ -228,6 +228,7 @@ def emit_total(DONE, field, metric):
         try:
             total = sum(sum(v[field]) for v in m.values())
             put_val("summation", "", [total, metric], t=t, i=1)
+            debug("%s summation %s %s" % (t, metric, total))
         except:
             t, e = sys.exc_info()[:2]
             debug("trying to emit %s failed %s %s %s" % (t, metric, e, m))
@@ -1035,7 +1036,7 @@ def grab_cpu_metrics(values_obj):
     :return: None
     """
     metric = values_obj.type + "." + values_obj.type_instance
-    ti = values_obj.time
+    ti = round(values_obj.time, 1)
     global CPU_HISTORY, CPU_DONE
     if CPU_HISTORY and ti not in CPU_HISTORY:
         debug("incomplete cpu, skipping %s" % CPU_HISTORY)
@@ -1055,7 +1056,7 @@ def grab_memory_metrics(values_obj):
     :return: None
     """
     metric = values_obj.type + "." + values_obj.type_instance
-    ti = values_obj.time
+    ti = round(values_obj.time, 1)
     global MEMORY_HISTORY, MEMORY_DONE, MAX_MEMORY_LENGTH
     if ti not in MEMORY_HISTORY:
         for t in MEMORY_HISTORY:
@@ -1185,9 +1186,10 @@ def restore_sigchld():
 
 def log_cb(severity, message):
     if "Value too old" in message:
-        log("turning on DEBUG due to error message")
-        global DEBUG
-        DEBUG = True
+        if not DEBUG:
+            log("turning on DEBUG due to error message")
+            global DEBUG
+            DEBUG = True
 
 
 # Note: Importing collectd_dogstatsd registers its own endpoints
