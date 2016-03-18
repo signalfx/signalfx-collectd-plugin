@@ -1183,6 +1183,13 @@ def restore_sigchld():
         DOGSTATSD_INSTANCE.init_callback()
 
 
+def log_cb(severity, message):
+    if "Value too old" in message:
+        log("turning on DEBUG due to error message")
+        global DEBUG
+        DEBUG = True
+
+
 # Note: Importing collectd_dogstatsd registers its own endpoints
 
 if __name__ != "__main__":
@@ -1192,6 +1199,7 @@ if __name__ != "__main__":
     collectd.register_init(restore_sigchld)
     collectd.register_config(plugin_config)
     collectd.register_shutdown(DOGSTATSD_INSTANCE.register_shutdown)
+    collectd.register_log(log_cb)
 
 else:
     # outside plugin just collect the info
