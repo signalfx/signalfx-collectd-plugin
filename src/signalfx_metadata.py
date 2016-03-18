@@ -1154,7 +1154,7 @@ def grab_disk_io_metrics(values_obj):
         for t in DISK_IO_HISTORY:
             if abs(ti - t) < 0.5:
                 ti = t
-                debug("too close %s %s" % (ti, t))
+                log("too close %s %s" % (ti, t))
                 break
             # if MAX_DISK_IO_LENGTH < len(DISK_IO_HISTORY[t]):
             #     debug("setting max length disk io %s %s"
