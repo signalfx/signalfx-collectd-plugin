@@ -1159,14 +1159,19 @@ def grab_disk_io_metrics(values_obj):
     global DISK_IO_HISTORY, DISK_IO_DONE, MAX_DISK_IO_LENGTH
     if DISK_IO_HISTORY and ti not in DISK_IO_HISTORY:
         for t in DISK_IO_HISTORY:
-            log("timings %s %s" % (ti, t))
+            debug("timings %s %s" % (ti, t))
             if MAX_DISK_IO_LENGTH < len(DISK_IO_HISTORY[t]):
                 debug("setting max length disk io %s %s"
                       % (t, len(DISK_IO_HISTORY[t])))
                 MAX_DISK_IO_LENGTH = len(DISK_IO_HISTORY[t])
-            DISK_IO_DONE.append((t, DISK_IO_HISTORY[t]))
-            debug("disk io appended at top length %s t %s %s" %
-                  (len(DISK_IO_HISTORY[t]), t, DISK_IO_HISTORY[t]))
+            if MAX_DISK_IO_LENGTH == len(DISK_IO_HISTORY[t]):
+                DISK_IO_DONE.append((t, DISK_IO_HISTORY[t]))
+                debug("disk io appended at top length %s t %s %s" %
+                      (len(DISK_IO_HISTORY[t]), t, DISK_IO_HISTORY[t]))
+            else:
+                debug("disk io not appending at top length %s t %s %s" %
+                      (len(DISK_IO_HISTORY[t]), t, DISK_IO_HISTORY[t]))
+
         if t != ti:
             DISK_IO_HISTORY = {}
     disk_time = DISK_IO_HISTORY.setdefault(ti, {})
