@@ -1164,7 +1164,7 @@ def grab_disk_io_metrics(values_obj):
         disk_time.setdefault(values_obj.plugin_instance, {})
     metric_history[values_obj.type] = values_obj.values
     if MAX_DISK_IO_LENGTH and len(disk_time) == MAX_DISK_IO_LENGTH:
-        debug("appending disk io at bottom %s %s" % (t, disk_time))
+        debug("appending disk io at bottom %s %s" % (ti, disk_time))
         DISK_IO_DONE.append((ti, disk_time))
         DISK_IO_HISTORY = {}
 
