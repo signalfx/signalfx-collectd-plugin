@@ -1186,9 +1186,9 @@ def restore_sigchld():
 
 def log_cb(severity, message):
     if "Value too old" in message:
+        global DEBUG
         if not DEBUG:
             log("turning on DEBUG due to error message")
-            global DEBUG
             DEBUG = True
 
 
