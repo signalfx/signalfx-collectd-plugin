@@ -1102,6 +1102,7 @@ def grab_df_metrics(values_obj):
     global DF_HISTORY, DF_DONE, MAX_DF_LENGTH
     if ti not in DF_HISTORY:
         for t in DF_HISTORY:
+            debug("df timings %s %s" % (ti, t))
             if MAX_DF_LENGTH < len(DF_HISTORY[t]):
                 MAX_DF_LENGTH = len(DF_HISTORY[t])
                 debug("setting DF_MAX_LENGTH %s" % len(DF_HISTORY[t]))
@@ -1138,6 +1139,7 @@ def grab_network_metrics(values_obj):
     global NETWORK_HISTORY, NETWORK_DONE, MAX_NETWORK_LENGTH
     if ti not in NETWORK_HISTORY:
         for t in NETWORK_HISTORY:
+            debug("network timings %s %s" % (ti, t))
             if MAX_NETWORK_LENGTH < len(NETWORK_HISTORY[t]):
                 debug("setting max length network %s"
                       % len(NETWORK_HISTORY[t]))
@@ -1181,7 +1183,7 @@ def grab_disk_io_metrics(values_obj):
                 debug("disk io appended at top length %s t %s %s" %
                       (len(DISK_IO_HISTORY[t]), t, DISK_IO_HISTORY[t]))
             else:
-                debug("disk io not appending at top length %s t %s %s" %
+                debug("incomplete skipping disk io %s t %s %s" %
                       (len(DISK_IO_HISTORY[t]), t, DISK_IO_HISTORY[t]))
 
         if t != ti:
