@@ -304,7 +304,8 @@ def emit_df_utilization():
                 free = v["df_complex.free"][0]
                 total = used + free
                 emit_utilization(used, total,
-                                 "disk.utilization", plugin_instance, obj=v)
+                                 "disk.utilization", plugin_instance,
+                                 t=t, obj=v)
                 total_total += total
                 used_total += used
             except:
@@ -313,7 +314,7 @@ def emit_df_utilization():
                       (e, plugin_instance, v))
         if used_total:
             emit_utilization(used_total, total_total,
-                             "disk.summary_utilization")
+                             "disk.summary_utilization", t=t)
     DF_DONE = []
 
 
