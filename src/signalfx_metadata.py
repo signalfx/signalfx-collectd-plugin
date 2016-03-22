@@ -73,6 +73,7 @@ INTERVAL = 10
 HOST = ""
 UP = time.time()
 DEBUG = False
+NOTIFICATIONS = False
 
 RESPONSE_LOCK = threading.Lock()
 METRIC_LOCK = threading.Lock()
@@ -662,7 +663,8 @@ def log(param):
 def plugin_config(conf):
     """
     :param conf:
-      https://collectd.org/documentation/manpages/collectd-python.5.shtml#config
+      https://collectd.org/documentation/manpages/collectd-python.5.shtml
+      #config
 
     Parse the config object for config parameters
     """
@@ -672,8 +674,8 @@ def plugin_config(conf):
     for kv in conf.children:
         if kv.key == 'Notifications':
             if kv.values[0]:
-                log("sending collectd notifications")
-                collectd.register_notification(receive_notifications)
+                global NOTIFICATIONS
+                NOTIFICATIONS = kv.values[0]
         elif kv.key == 'ProcessInfo':
             global PROCESS_INFO
             PROCESS_INFO = kv.values[0]
@@ -707,6 +709,12 @@ def plugin_config(conf):
                 NOTIFY_LEVEL = 2
             elif string.lower(kv.values[0]) == "failure":
                 NOTIFY_LEVEL = 1
+
+    if NOTIFICATIONS:
+        log("sending collectd notifications")
+        collectd.register_notification(receive_notifications)
+    else:
+        collectd.register_notification(steal_host_from_notifications)
 
     if DPM or UTILIZATION:
         collectd.register_write(UTILIZATION_INSTANCE.write)
@@ -1338,7 +1346,6 @@ def restore_sigchld():
 
 if __name__ != "__main__":
     # when running inside plugin
-    collectd.register_notification(steal_host_from_notifications)
     collectd.register_init(restore_sigchld)
     collectd.register_config(plugin_config)
     collectd.register_shutdown(DOGSTATSD_INSTANCE.register_shutdown)
