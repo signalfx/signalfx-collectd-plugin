@@ -2,6 +2,7 @@
 
 import array
 import binascii
+import copy
 import fcntl
 import os
 import os.path
@@ -54,7 +55,7 @@ PLUGIN_NAME = 'signalfx-metadata'
 API_TOKEN = ""
 TIMEOUT = 3
 POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.17"
+VERSION = "0.0.18"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
@@ -69,13 +70,9 @@ PROCESS_INFO = True
 DPM = False
 UTILIZATION = True
 INTERVAL = 10
-CPU_INTERVAL = False
-MEMORY_INTERVAL = False
-DF_INTERVAL = False
-NETWORK_INTERVAL = False
-DISK_INTERVAL = False
 HOST = ""
 UP = time.time()
+DEBUG = False
 
 RESPONSE_LOCK = threading.Lock()
 METRIC_LOCK = threading.Lock()
@@ -83,21 +80,539 @@ MAX_RESPONSE = 0
 RESPONSE_ERRORS = 0
 DATAPOINT_COUNT = {}
 
-CPU_HISTORY = {}
-CPU_DONE = []
-CPU_TOTAL = 0
-CPU_USED = 0
-
-MEMORY_HISTORY = {}
-MEMORY_DONE = []
-DF_HISTORY = {}
-DF_DONE = []
-DISK_IO_HISTORY = {}
-DISK_IO_DONE = []
-NETWORK_HISTORY = {}
-NETWORK_DONE = []
-
 DOGSTATSD_INSTANCE = collectd_dogstatsd.DogstatsDCollectD(collectd)
+
+
+class mdict(dict):
+    """
+    a dictionary class that has a skipped flag for missing data purposes.
+    """
+
+    def __init__(self, *args, **kw):
+        super(mdict, self).__init__(*args, **kw)
+        self.skipped = False
+
+
+class Utilization(object):
+    """
+    Base class for all utilizations.
+    """
+
+    def __init__(self):
+        self.metrics = {}
+        self.last_time = 0
+        self.interval = 0
+        self.wait_threshold = 3
+
+    def get_time(self, values_obj):
+        return round(values_obj.time, 1)
+
+    def write(self, values_obj):
+        """
+        checks if it is this utilization's metric and adds if so. determines
+        the interval this data is appearing on.
+
+        :param values_obj: python plugin Values object
+        :return: None
+        """
+        if self.is_metric(values_obj):
+            self.add_metric(values_obj)
+            if not self.interval:
+                self.interval = values_obj.interval
+                if not self.interval:
+                    self.interval = INTERVAL
+            return True
+        return False
+
+    def add_metric(self, values_obj):
+        """
+        create a name, round the time to nearest 10th of a second due to not
+        perfect timings for disk and network.
+
+        :param values_obj: python plugin Values object
+        :return: None
+        """
+        metric = values_obj.type
+        if values_obj.type_instance:
+            metric += "." + values_obj.type_instance
+        ti = self.get_time(values_obj)
+        metric_time = self.metrics.setdefault(ti, mdict())
+        metric_time[metric] = values_obj.values
+
+    def emit_utilization(self, t, used, total, metric,
+                         plugin_instance="utilization", obj=None):
+        """
+        emit a utilization metric
+
+        :param t: time to emit, default is 0.0 meaning now
+        :param used: how much has been used
+        :param total: total amount
+        :param metric: metric to be emitted as
+        :param plugin_instance:  plugin_instance to be emitted as
+        :param obj: debug passthrough
+        :return: the percent calculated, a number
+        """
+        if total == 0:
+            percent = 0
+        else:
+            percent = 1.0 * used / total * 100
+        if percent < 0:
+            log("percent <= 0 %s %s %s %s %s" %
+                (used, total, metric, plugin_instance, obj))
+            return percent
+        if percent > 100:
+            log("percent > 100 %s %s %s %s %s" %
+                (used, total, metric, plugin_instance, obj))
+            return percent
+        if t < self.last_time:
+            debug("too old %s %s %s %s" % (t, metric, percent, self.last_time))
+        else:
+            put_val(plugin_instance, "", [percent, metric], t=t,
+                    i=self.interval)
+            self.last_time = t
+            debug("%s %s %s" % (t, metric, percent))
+        return percent
+
+
+class PluginInstanceUtilization(Utilization):
+    """
+    A utilization base class for things that are on a per-plugin_instance
+    basis.
+    """
+
+    def __init__(self):
+        Utilization.__init__(self)
+
+    def add_metric(self, values_obj):
+        """
+        Almost exactly like Utilization.add_metric except takes into account
+        plugin_instance.
+
+        :param values_obj: python plugin Values object
+        :return: None
+        """
+        metric = values_obj.type
+        if values_obj.type_instance:
+            metric += "." + values_obj.type_instance
+        ti = self.get_time(values_obj)
+        metric_time = self.metrics.setdefault(ti, mdict())
+        metric_plugin_instance = metric_time.setdefault(
+            values_obj.plugin_instance, mdict())
+        metric_plugin_instance[metric] = values_obj.values
+
+
+class DfUtilization(PluginInstanceUtilization):
+    """
+    DfUtilization gives a 0 <= gauge <= 100 of the overall utilization of the
+    partition for each partition.
+    """
+
+    def __init__(self):
+        PluginInstanceUtilization.__init__(self)
+
+    def is_metric(self, values_obj):
+        return values_obj.plugin == "df" and values_obj.type == "df_complex"
+
+    def read(self):
+        """
+        emit df utilization metrics on a per partition basis
+
+        :return: None
+        """
+        for t in sorted(self.metrics.keys()):
+            for plugin_instance in self.metrics[t].keys():
+                m = self.metrics[t][plugin_instance]
+                if len(m) == 3:
+                    used = m["df_complex.used"][0]
+                    free = m["df_complex.free"][0]
+                    total = used + free
+                    self.emit_utilization(t, used, total,
+                                          "disk.utilization",
+                                          plugin_instance, obj=m)
+                    del (self.metrics[t][plugin_instance])
+                else:
+                    # skip em once to give metrics time to arrive
+                    if m.skipped:
+                        debug("incomplete metric %s %s %s" %
+                              (plugin_instance, t, m))
+                        del (self.metrics[t][plugin_instance])
+                    else:
+                        m.skipped = True
+            if not self.metrics[t]:
+                del (self.metrics[t])
+
+
+class MemoryUtilization(Utilization):
+    """
+    MemoryUtilization gives a 0 <= gauge <= 100 of the overall utilization of
+    memory
+    """
+
+    def __init__(self):
+        Utilization.__init__(self)
+        self.size = 0
+
+    def is_metric(self, values_obj):
+        return values_obj.plugin == "memory" and values_obj.type == "memory"
+
+    def read(self):
+        """
+        emit memory utilization metrics.  different collectds send in
+        different #s of metrics so wait "self.wait_threshold" intervals to
+        figure out which.
+
+        :return: None
+        """
+        if self.size == 0:
+            if len(self.metrics) >= self.wait_threshold:
+                self.size = max(map(len, self.metrics.values()))
+            else:
+                return
+
+        for t in sorted(self.metrics.keys()):
+            m = self.metrics[t]
+            if len(m) == self.size:
+                total = sum(c[0] for c in m.values())
+                used = total - m["memory.free"][0]
+                self.emit_utilization(t, used, total,
+                                      "memory.utilization", obj=m)
+            else:
+                debug("incomplete metric %s %s" % (t, self.metrics[t]))
+            del (self.metrics[t])
+
+
+class CpuUtilization(Utilization):
+    """
+    CpuUtilization gives a 0 <=gauge <=100 of the overall utilization of cpu.
+    """
+
+    def __init__(self):
+        Utilization.__init__(self)
+        self.last = {}
+        self.old_total = 0
+        self.old_idle = 0
+        self.old_used = 0
+
+    def is_metric(self, values_obj):
+        return (values_obj.plugin == "aggregation" and
+                values_obj.type == "cpu" and
+                values_obj.plugin_instance == "cpu-average")
+
+    def read(self):
+        """
+        emit cpu utilization metric when we've seen all the cpu aggregation
+        metrics we need.  Have to watch out for incomplete metrics.
+
+        :return: None
+        """
+        for t in sorted(self.metrics.keys()):
+
+            if len(self.metrics[t]) == 8:
+                # debug("kept %s %s" % (t, self.metrics[t]))
+                self.last.update(self.metrics[t])
+                total = sum(c[0] for c in self.last.values())
+                idle = self.last.get("cpu.idle", [0])[0]
+                used = total - idle
+                if self.old_total != 0:
+                    used_diff = used - self.old_used
+                    total_diff = total - self.old_total
+                    if used_diff < 0 or total_diff < 0:
+                        log("t %s used %s total %s old used %s old total %s" %
+                            (t, used, total, self.old_used, self.old_total))
+                    elif used_diff == 0 and total_diff == 0:
+                        log("zeros %s %s" % (self.last, self.metrics[t]))
+                    else:
+                        self.emit_utilization(t, used_diff, total_diff,
+                                              "cpu.utilization",
+                                              obj=(t, self.metrics[t]))
+                del (self.metrics[t])
+                self.old_total = total
+                self.old_idle = idle
+                self.old_used = used
+            else:
+                # skip em once to give metrics time to arrive
+                if self.metrics[t].skipped:
+                    debug("incomplete metric %s %s" % (t, self.metrics[t]))
+                    del (self.metrics[t])
+                else:
+                    self.metrics[t].skipped = True
+
+
+class Total(PluginInstanceUtilization):
+    """
+    Total is the base class for all Totals.  Provides a total, previous,
+    size and a set of plugin instances.
+    """
+
+    def __init__(self):
+        PluginInstanceUtilization.__init__(self)
+        self.totals = {}
+        self.previous = {}
+        self.size = 0
+        self.current_plugin_instances = set()
+
+    def emit_total(self, metric, t):
+        """
+        emit a total metric
+
+        :param t: time to emit, default is 0.0 meaning now
+        :param metric: metric to be emitted as
+        :return: None
+        """
+        total = sum(self.totals.values())
+        put_val("summation", "", [total, metric], t=t, i=self.interval)
+        debug("%s %s %s" % (t, metric, total))
+        self.last_time = t
+
+    def check_threshold(self):
+        """
+        Threshold exists so that we wait a certain # of intervals to "see the
+        world", then make decisions on what is reporting.
+
+        :return: None
+        """
+
+        if self.size == 0:
+            if len(self.metrics) >= self.wait_threshold:
+                self.size = max(map(len, self.metrics.values()))
+                for t in self.metrics.keys():
+                    if len(self.metrics[t]) != self.size:
+                        del (self.metrics[t])
+                    else:
+                        self.current_plugin_instances = set(
+                            self.metrics[t].keys())
+                return True
+        else:
+            return True
+
+        return False
+
+    def read(self):
+        """
+        Once the threshold has been checked iterate through intervals
+        emitting a total. Because these are cumulative counters on we need to
+        never go down even if something stops reporting, so we start with 0
+        and only send in diffs.  If they stop reporting we keep that in the
+        total.  If they wrap we make that the diff.
+
+        :return: None
+        """
+        if not self.check_threshold():
+            return
+
+        for t in sorted(self.metrics.keys()):
+            m = self.metrics[t]
+            if m.skipped or len(m) >= self.size:
+                if len(m) > self.size:
+                    self.size = len(m)
+                prev = copy.copy(self.previous)
+                current = {}
+                for x, y in m.iteritems():
+                    current[x] = sum(y[self.total_type])
+                diff = {}
+                for k in current:
+                    if k in prev:
+                        v = current[k] - prev[k]
+                        if v < 0:
+                            if t < self.last_time:
+                                debug(
+                                    "older metric, don't show wrapping t %s "
+                                    "last %s" % (t, self.last_time))
+                                del (self.metrics[t])
+                                continue
+                            debug("we've wrapped %s prev %s current %s" %
+                                  (k, prev[k], current[k]))
+                            v = current[k]
+                        del (prev[k])
+                    else:
+                        v = 0
+                    diff[k] = v
+
+                # we don't need to look at the ones that aren't showing up
+                # we have their last diff in the total, and if they ever
+                # register again we'll record that diff
+
+                for k in diff:
+                    self.totals[k] = self.totals.setdefault(k, 0) + diff[k]
+                    self.previous[k] = current[k]
+                self.emit_total(self.metric_name, t)
+                del (self.metrics[t])
+            else:
+                m.skipped = True
+
+
+class DfTotalUtilization(Total):
+    """
+    DfTotalUtilization emits "disk.summary_utilization" which is a gauge of
+    the used_bytes/total_bytes across all partitions.
+    """
+
+    def __init__(self):
+        Total.__init__(self)
+        self.probation_plugin_instances = set()
+
+    def is_metric(self, values_obj):
+        return values_obj.plugin == "df" and values_obj.type == "df_complex"
+
+    def read(self):
+        """
+        Because you can mount or umount disks, we need to keep an accurate view
+        of which are reporting.  We have skipped to mark metrics that have
+        missed an interval and then if they get skipped we move that partition
+        to probation.  if they violate probation we stop listening for them
+        and consider them unmounted.
+
+        Similary, if we see a new partition, we start listening for it.
+        :return:
+        """
+        if not self.check_threshold():
+            return
+
+        for t in sorted(self.metrics.keys()):
+            used_total = 0
+            free_total = 0
+            pm = self.metrics[t]
+            delete = True
+            emit = True
+            current = set(pm.keys())
+            if current >= self.current_plugin_instances:
+                if current > self.current_plugin_instances:
+                    self.size = len(pm)
+                    diff = set(pm.keys()) - self.current_plugin_instances
+                    debug("updating current_plugin_instances with diff %s"
+                          % diff)
+                    self.current_plugin_instances = set(pm.keys())
+                for plugin_instance in self.current_plugin_instances:
+                    m = self.metrics[t][plugin_instance]
+                    if len(m) == 3:
+                        used_total += m["df_complex.used"][0]
+                        free_total += m["df_complex.free"][0]
+                    else:
+                        emit = False
+                        # skip em once to give metrics time to arrive
+                        if pm.skipped:
+                            debug("incomplete metric %s %s %s" %
+                                  (plugin_instance, t, pm))
+                            break
+                        else:
+                            pm.skipped = True
+                            delete = False
+            else:
+                emit = False
+                if pm.skipped:
+                    debug("incomplete metric %s %s" %
+                          (t, pm))
+                    skipped_plugin_instances = set(pm.keys())
+                    difference = self.current_plugin_instances.difference(
+                        skipped_plugin_instances)
+                    for d in difference:
+                        if d in self.probation_plugin_instances:
+                            self.current_plugin_instances.remove(d)
+                            self.size = len(self.current_plugin_instances)
+                            debug(
+                                "probate plugin_instance removed %s size now "
+                                "%s" % (d, self.size))
+                            self.probation_plugin_instances.remove(d)
+                        else:
+                            debug("setting probate plugin_instance %s" % d)
+                            self.probation_plugin_instances.add(d)
+
+                else:
+                    pm.skipped = True
+                    delete = False
+
+            if emit:
+                self.emit_utilization(t, used_total, used_total + free_total,
+                                      "disk.summary_utilization", obj=pm)
+            if delete:
+                del (self.metrics[t])
+
+
+class NetworkTotal(Total):
+    """
+    NetworkTotal emits "network.total" which is a counter of the total bytes,
+    both tx and rx of this machine across all interfaces.
+    """
+
+    def __init__(self):
+        Total.__init__(self)
+        self.total_type = "if_octets"
+        self.metric_name = "network.total"
+
+    def is_metric(self, values):
+        return values.plugin == "interface" and values.type == "if_octets"
+
+
+class DiskTotal(Total):
+    """
+    DiskTotal emits "disk_ops.total" which is a counter of the total iops
+    of this machine across all disks.
+    """
+
+    def __init__(self):
+        Total.__init__(self)
+        self.total_type = "disk_ops"
+        self.metric_name = "disk_ops.total"
+
+    def is_metric(self, values_obj):
+        return values_obj.plugin == "disk" and values_obj.type == "disk_ops"
+
+
+class UtilizationFactory:
+    """
+    Utilization factory handles the reading and wring of metrics accross
+    utilizations.
+    """
+
+    def __init__(self):
+        self.utilizations = [CpuUtilization(), MemoryUtilization(),
+                             DfUtilization(), NetworkTotal(), DiskTotal(),
+                             DfTotalUtilization()]
+
+    def write(self, values_obj):
+        """
+        write callback method. Useful for DPM calculations and aggregations.
+
+        The write methods for each utilization are listening for metrics of
+        the type they want.
+
+        :param values_obj: collectd.python Values object
+        :return: None
+        """
+        if DPM:
+            with RESPONSE_LOCK:
+                global DATAPOINT_COUNT
+                DATAPOINT_COUNT.setdefault(values_obj.plugin, 0)
+                DATAPOINT_COUNT[values_obj.plugin] += len(values_obj.values)
+
+        if not UTILIZATION:
+            return
+
+        with METRIC_LOCK:
+            for u in self.utilizations:
+                try:
+                    u.write(values_obj)
+                except:
+                    t, e = sys.exc_info()[:2]
+                    log("utilization write error: %s" % str(e))
+
+    def read(self):
+        """
+        Emit all utilizations, this is called at a frequency of 1 to send any
+        metrics that may be collectd at any rate.  Most of these will be noops.
+
+        :return: None
+        """
+        with METRIC_LOCK:
+            for u in self.utilizations:
+                try:
+                    u.read()
+                except:
+                    t, e = sys.exc_info()[:2]
+                    log("utilization read error: %s" % str(e))
+
+
+UTILIZATION_INSTANCE = UtilizationFactory()
 
 
 class LargeNotif:
@@ -127,6 +642,15 @@ class LargeNotif:
                                                self.message)
 
 
+def debug(param):
+    """ debug messages and understand if we're in collectd or a program """
+    if DEBUG:
+        if __name__ != '__main__':
+            collectd.info("%s: DEBUG %s" % (PLUGIN_NAME, param))
+        else:
+            sys.stderr.write("%s\n" % param)
+
+
 def log(param):
     """ log messages and understand if we're in collectd or a program """
     if __name__ != '__main__':
@@ -140,16 +664,7 @@ def plugin_config(conf):
     :param conf:
       https://collectd.org/documentation/manpages/collectd-python.5.shtml#config
 
-    Parse the config object for config parameters:
-      ProcessInfo: true or false, whether or not to collect process
-        information. Default is true.
-      Notifications: true or false, whether or not to emit notifications
-      if Notifications is true:
-        URL: where to POST the notifications to
-        Token: what auth to send along
-        Timeout: timeout for the POST
-        NotifyLevel: what is the lowest level of notification to emit.
-          Default is to only emit notifications generated by this plugin
+    Parse the config object for config parameters
     """
 
     DOGSTATSD_INSTANCE.config.configure_callback(conf)
@@ -168,6 +683,10 @@ def plugin_config(conf):
         elif kv.key == 'DPM':
             global DPM
             DPM = kv.values[0]
+        elif kv.key == 'Verbose':
+            global DEBUG
+            DEBUG = kv.values[0]
+            log('setting verbose to %s' % DEBUG)
         elif kv.key == 'URL':
             global POST_URL
             POST_URL = kv.values[0]
@@ -190,7 +709,9 @@ def plugin_config(conf):
                 NOTIFY_LEVEL = 1
 
     if DPM or UTILIZATION:
-        collectd.register_write(receive_datapoint)
+        collectd.register_write(UTILIZATION_INSTANCE.write)
+        collectd.register_read(UTILIZATION_INSTANCE.read, 1,
+                               name="utilization_reads")
 
     collectd.register_read(send, INTERVAL)
     set_aws_url(get_aws_info())
@@ -198,118 +719,6 @@ def plugin_config(conf):
 
 def compact(thing):
     return json.dumps(thing, separators=(',', ':'))
-
-
-STARTING = {}
-
-
-def emit_total(DONE, field, metric, i=INTERVAL):
-    # don't send on first iteration even if we have history, it's going
-    # to be wrong
-
-    for t, m in DONE:
-        total = sum(sum(v[field]) for v in m.values())
-        put_val("summation", "", [total, metric], t=t, i=i)
-
-
-def emit_utilization(used, total, metric, plugin_instance="utilization",
-                     t=0.0, i=INTERVAL):
-    if total == 0:
-        percent = 0
-    else:
-        percent = 1.0 * used / total * 100
-    put_val(plugin_instance, "", [percent, metric], t=t, i=i)
-
-
-def emit_disk_total():
-    """
-    emits a total for all disk iops that have occurred.
-
-    :return: None
-    """
-    with METRIC_LOCK:
-        global DISK_IO_DONE
-        emit_total(DISK_IO_DONE, "disk_ops", "disk_ops.total", i=DISK_INTERVAL)
-        DISK_IO_DONE = []
-
-
-def emit_network_total():
-    """
-    emits a total for all network bytes that have occurred.
-
-    :return: None
-    """
-    with METRIC_LOCK:
-        global NETWORK_DONE
-        emit_total(NETWORK_DONE, "if_octets", "network.total",
-                   i=NETWORK_INTERVAL)
-        NETWORK_DONE = []
-
-
-def emit_df_utilization():
-    """
-    emit disk utilization metrics when we've seen all the disk metrics we need
-    Note that this emits one utilization metric for each mount point and a
-    total utilization.
-
-    :return: None
-    """
-    used_total = 0
-    total_total = 0
-    global DF_DONE
-    with METRIC_LOCK:
-        for t, m in DF_DONE:
-            for plugin_instance, v in m.iteritems():
-                used = v["df_complex.used"][0]
-                free = v["df_complex.free"][0]
-                total = used + free
-                emit_utilization(used, total,
-                                 "disk.utilization", plugin_instance)
-                total_total += total
-                used_total += used
-            if used_total:
-                emit_utilization(used_total, total_total,
-                                 "disk.summary_utilization")
-        DF_DONE = []
-
-
-def emit_memory_utilization():
-    """
-    emit memory utilization metric when we've seen all the memory metrics we
-    need
-
-    :return: None
-    """
-    global MEMORY_DONE
-    with METRIC_LOCK:
-        for t, m in MEMORY_DONE:
-            total = sum(c[0] for c in m.values())
-            used = total - m["memory.free"][0]
-            emit_utilization(used, total, "memory.utilization", t=t,
-                             i=MEMORY_INTERVAL)
-        MEMORY_DONE = []
-
-
-def emit_cpu_utilization():
-    """
-    emit cpu utilization metric when we've seen all the cpu aggregation metrics
-    we need
-
-    :return: None
-    """
-    global CPU_TOTAL, CPU_USED, CPU_DONE
-    with METRIC_LOCK:
-        for t, m in CPU_DONE:
-            total = sum(c[0] for c in m.values())
-            idle = m["cpu.idle"][0]
-            used = total - idle
-            used_diff = used - CPU_USED
-            total_diff = total - CPU_TOTAL
-            CPU_USED = used
-            CPU_TOTAL = total
-            emit_utilization(used_diff, total_diff, "cpu.utilization", t=t,
-                             i=CPU_INTERVAL)
-        CPU_DONE = []
 
 
 def send():
@@ -711,7 +1120,6 @@ def map_diff(host_info, old_host_info):
 def put_val(plugin_instance, type_instance, val, plugin=PLUGIN_NAME, t=0.0,
             i=INTERVAL):
     """Create collectd metric"""
-
     try:
         if __name__ != "__main__":
             collectd.Values(plugin=plugin,
@@ -802,7 +1210,12 @@ def send_notifications():
 
 
 def get_severity(severity_int):
-    """helper meethod to swap severities"""
+    """
+    helper meethod to swap severities
+
+    :param severity_int: integer value for severity
+    :return: collectd string for severity
+    """
     return {
         1: "FAILURE",
         2: "WARNING",
@@ -811,6 +1224,12 @@ def get_severity(severity_int):
 
 
 def update_response_times(diff):
+    """
+    Update max response time
+
+    :param diff: how long a round trip took
+    :return: None
+    """
     with RESPONSE_LOCK:
         global MAX_RESPONSE
         if diff > MAX_RESPONSE:
@@ -897,113 +1316,6 @@ def receive_notifications(notif):
     finally:
         diff = time.time() - start
         update_response_times(diff * 1000000.0)
-
-
-def receive_datapoint(values_obj):
-    if DPM:
-        with RESPONSE_LOCK:
-            global DATAPOINT_COUNT
-            DATAPOINT_COUNT.setdefault(values_obj.plugin, 0)
-            DATAPOINT_COUNT[values_obj.plugin] += len(values_obj.values)
-
-    if not UTILIZATION:
-        return
-
-    with METRIC_LOCK:
-        if values_obj.plugin == "aggregation" and values_obj.type \
-                == "cpu" and values_obj.plugin_instance == "cpu-average":
-            metric = values_obj.type + "." + values_obj.type_instance
-            ti = values_obj.time
-            global CPU_HISTORY, CPU_DONE
-            if ti not in CPU_HISTORY:
-                for t in CPU_HISTORY:
-                    CPU_DONE.append((t, CPU_HISTORY[t]))
-                CPU_HISTORY = {}
-
-            cpu_time = CPU_HISTORY.setdefault(ti, {})
-            cpu_time[metric] = values_obj.values
-            global CPU_INTERVAL
-            if not CPU_INTERVAL:
-                register_utilization(values_obj, emit_cpu_utilization, "cpu")
-                CPU_INTERVAL = True
-
-        elif values_obj.plugin == "memory" and values_obj.type == "memory":
-            metric = values_obj.type + "." + values_obj.type_instance
-            ti = values_obj.time
-            global MEMORY_HISTORY, MEMORY_DONE
-            if ti not in MEMORY_HISTORY:
-                for t in MEMORY_HISTORY:
-                    MEMORY_DONE.append((t, MEMORY_HISTORY[t]))
-                MEMORY_HISTORY = {}
-
-            mem_time = MEMORY_HISTORY.setdefault(ti, {})
-            mem_time[metric] = values_obj.values
-            global MEMORY_INTERVAL
-            if not MEMORY_INTERVAL:
-                register_utilization(values_obj, emit_memory_utilization,
-                                     "memory")
-                MEMORY_INTERVAL = True
-        elif values_obj.plugin == "df" and values_obj.type == "df_complex":
-            metric = values_obj.type + "." + values_obj.type_instance
-            ti = int(values_obj.time)
-            global DF_HISTORY, DF_DONE
-            if ti not in DF_HISTORY:
-                for t in DF_HISTORY:
-                    DF_DONE.append((t, DF_HISTORY[t]))
-                DF_HISTORY = {}
-
-            disk_time = DF_HISTORY.setdefault(ti, {})
-
-            metric_history = \
-                disk_time.setdefault(values_obj.plugin_instance, {})
-            metric_history[metric] = values_obj.values
-
-            global DF_INTERVAL
-            if not DF_INTERVAL:
-                register_utilization(values_obj, emit_df_utilization, "df")
-                DF_INTERVAL = True
-        elif values_obj.plugin == "interface":
-            ti = int(values_obj.time)
-            global NETWORK_HISTORY, NETWORK_DONE
-            if ti not in NETWORK_HISTORY:
-                for t in NETWORK_HISTORY:
-                    NETWORK_DONE.append((t, NETWORK_HISTORY[t]))
-                NETWORK_HISTORY = {}
-            network_time = NETWORK_HISTORY.setdefault(ti, {})
-            metric_history = \
-                network_time.setdefault(values_obj.plugin_instance, {})
-            metric_history[values_obj.type] = values_obj.values
-            global NETWORK_INTERVAL
-            if not NETWORK_INTERVAL:
-                register_utilization(values_obj, emit_network_total, "network")
-                NETWORK_INTERVAL = True
-        elif values_obj.plugin == "disk":
-            ti = int(values_obj.time)
-            global DISK_IO_HISTORY, DISK_IO_DONE
-            if ti not in DISK_IO_HISTORY:
-                for t in DISK_IO_HISTORY:
-                    DISK_IO_DONE.append((t, DISK_IO_HISTORY[t]))
-                DISK_IO_HISTORY = {}
-            network_time = DISK_IO_HISTORY.setdefault(ti, {})
-            metric_history = \
-                network_time.setdefault(values_obj.plugin_instance, {})
-            metric_history[values_obj.type] = values_obj.values
-            global DISK_INTERVAL
-            if not DISK_INTERVAL:
-                register_utilization(values_obj, emit_disk_total, "disk")
-                DISK_INTERVAL = True
-
-
-def register_utilization(values_obj, method, read_name):
-    if INTERVAL != values_obj.interval:
-        log("setting %s interval to " % read_name +
-            str(values_obj.interval))
-        collectd.register_read(method,
-                               values_obj.interval,
-                               name=PLUGIN_NAME + ".%s_read" % read_name)
-    else:
-        collectd.register_read(method, INTERVAL,
-                               name=PLUGIN_NAME + ".%s_read" % read_name)
 
 
 def restore_sigchld():
