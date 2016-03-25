@@ -52,10 +52,11 @@ except ImportError:
         pass
 
 PLUGIN_NAME = 'signalfx-metadata'
-API_TOKEN = ""
+API_TOKENS = []
 TIMEOUT = 3
-POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.18"
+POST_URLS = []
+DEFAULT_POST_URL = "https://ingest.signalfx.com/v1/collectd"
+VERSION = "0.0.19"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
@@ -671,6 +672,7 @@ def plugin_config(conf):
 
     DOGSTATSD_INSTANCE.config.configure_callback(conf)
 
+    global POST_URLS
     for kv in conf.children:
         if kv.key == 'Notifications':
             if kv.values[0]:
@@ -690,11 +692,10 @@ def plugin_config(conf):
             DEBUG = kv.values[0]
             log('setting verbose to %s' % DEBUG)
         elif kv.key == 'URL':
-            global POST_URL
-            POST_URL = kv.values[0]
+            POST_URLS.extend(kv.values)
         elif kv.key == 'Token':
             global API_TOKEN
-            API_TOKEN = kv.values[0]
+            API_TOKENS.extend(kv.values)
         elif kv.key == 'Timeout':
             global TIMEOUT
             TIMEOUT = int(kv.values[0])
@@ -709,6 +710,15 @@ def plugin_config(conf):
                 NOTIFY_LEVEL = 2
             elif string.lower(kv.values[0]) == "failure":
                 NOTIFY_LEVEL = 1
+
+    if not POST_URLS:
+        POST_URLS = [DEFAULT_POST_URL]
+
+    if API_TOKENS and len(POST_URLS) != len(API_TOKENS):
+        log(
+            "You have specified a different number of Tokens than URLs, "
+            "please fix this")
+        sys.exit(0)
 
     if NOTIFICATIONS:
         log("sending collectd notifications")
@@ -891,19 +901,20 @@ def get_aws_info(host_info={}):
 
 
 def set_aws_url(host_info):
-    global AWS_SET, POST_URL
+    global AWS_SET, POST_URLS
     if AWS and not AWS_SET:
-        result = urlparse(POST_URL)
-        if "sfxdim_AWSUniqueId" not in result.query:
-            dim = "sfxdim_AWSUniqueId=%s_%s_%s" % \
-                  (host_info["aws_instance_id"],
-                   host_info["aws_region"], host_info["aws_account_id"])
-            if result.query:
-                POST_URL += "&%s" % dim
-            else:
-                POST_URL += "?%s" % dim
-            log("adding %s to post_url for uniqueness" % dim)
-        AWS_SET = True
+        for i in range(len(POST_URLS)):
+            result = urlparse(POST_URLS[i])
+            if "sfxdim_AWSUniqueId" not in result.query:
+                dim = "sfxdim_AWSUniqueId=%s_%s_%s" % \
+                      (host_info["aws_instance_id"],
+                       host_info["aws_region"], host_info["aws_account_id"])
+                if result.query:
+                    POST_URLS[i] += "&%s" % dim
+                else:
+                    POST_URLS[i] += "?%s" % dim
+                log("adding %s to post_url for uniqueness" % dim)
+            AWS_SET = True
 
 
 def popen(command):
@@ -1308,22 +1319,24 @@ def receive_notifications(notif):
     notif_dict["severity"] = get_severity(notif_dict["severity"])
     data = compact([notif_dict])
     headers = {"Content-Type": "application/json"}
-    if API_TOKEN != "":
-        headers["X-SF-TOKEN"] = API_TOKEN
-    start = time.time()
-    try:
-        req = urllib2.Request(POST_URL, data, headers)
-        r = urllib2.urlopen(req, timeout=TIMEOUT)
-        sys.stdout.write(string.strip(r.read()))
-    except Exception:
-        t, e = sys.exc_info()[:2]
-        sys.stdout.write(str(e))
-        log("unsuccessful response: %s" % str(e))
-        global RESPONSE_ERRORS
-        RESPONSE_ERRORS += 1
-    finally:
-        diff = time.time() - start
-        update_response_times(diff * 1000000.0)
+    for i in range(len(POST_URLS)):
+        post_url = POST_URLS[i]
+        if API_TOKENS:
+            headers["X-SF-TOKEN"] = API_TOKENS[i]
+        start = time.time()
+        try:
+            req = urllib2.Request(post_url, data, headers)
+            r = urllib2.urlopen(req, timeout=TIMEOUT)
+            sys.stdout.write(string.strip(r.read()))
+        except Exception:
+            t, e = sys.exc_info()[:2]
+            sys.stdout.write(str(e))
+            log("unsuccessful response: %s" % str(e))
+            global RESPONSE_ERRORS
+            RESPONSE_ERRORS += 1
+        finally:
+            diff = time.time() - start
+            update_response_times(diff * 1000000.0)
 
 
 def restore_sigchld():

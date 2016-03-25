@@ -1,5 +1,9 @@
-0.0.18 / 2016-03-21
+0.0.19 / 2016-03-25
 ===================
+
+* add ability for multiple endpoints
+
+0.0.18 / 2016-03-21
 
 * refactory utilizations
 * add unit tests
