@@ -1156,13 +1156,14 @@ def put_val(plugin_instance, type_instance, val, plugin=PLUGIN_NAME, t=0.0,
                 type_instance, INTERVAL, val[0]))
     except TypeError:
         global UTILIZATION
-        UTILIZATION = False
-        log("ERROR: Utilization features have been disabled because TypesDB" +
-            " hasn't been specified")
-        log("To use the utilization features of this plugin, please update" +
-            " the top of your config to include" +
-            " 'TypesDB \"/opt/signalfx-collectd-plugin/types.db.plugin\"'")
-        raise
+        if UTILIZATION:
+            UTILIZATION = False
+            log("ERROR: Utilization features have been disabled because " +
+                "TypesDB hasn't been specified")
+            log(
+                "To use the utilization features of this plugin, please " +
+                "update the top of your config to include 'TypesDB " +
+                "\"/opt/signalfx-collectd-plugin/types.db.plugin\"'")
 
 
 def get_uptime():

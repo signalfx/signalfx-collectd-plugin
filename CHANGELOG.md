@@ -3,6 +3,7 @@
 
 * change memory.utilization to not include cached, bufferred or slab but just
   be used/total
+* fix repetative logging when types.db.plugin isn't found
 
 0.0.19 / 2016-03-25
 
