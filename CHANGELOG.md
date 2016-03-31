@@ -1,5 +1,10 @@
-0.0.19 / 2016-03-25
+0.0.20 / 2016-03-31
 ===================
+
+* change memory.utilization to not include cached, bufferred or slab but just
+  be used/total
+
+0.0.19 / 2016-03-25
 
 * add ability for multiple endpoints
 

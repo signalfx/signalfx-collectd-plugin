@@ -56,7 +56,7 @@ API_TOKENS = []
 TIMEOUT = 3
 POST_URLS = []
 DEFAULT_POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.19"
+VERSION = "0.0.20"
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
@@ -275,7 +275,7 @@ class MemoryUtilization(Utilization):
             m = self.metrics[t]
             if len(m) == self.size:
                 total = sum(c[0] for c in m.values())
-                used = total - m["memory.free"][0]
+                used = m["memory.used"][0]
                 self.emit_utilization(t, used, total,
                                       "memory.utilization", obj=m)
             else:
