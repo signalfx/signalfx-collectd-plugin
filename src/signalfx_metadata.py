@@ -24,6 +24,8 @@ import psutil
 
 import collectd_dogstatsd
 
+PLUGIN_UPTIME = "sf.host-plugin_uptime"
+
 try:
     import urllib.request as urllib2
 except ImportError:
@@ -56,18 +58,23 @@ API_TOKENS = []
 TIMEOUT = 3
 POST_URLS = []
 DEFAULT_POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.20"
+VERSION = "0.0.21"
+MAX_LENGTH = 0
+COLLECTD_VERSION = ""
+LINUX_VERSION = ""
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
 TYPE = "objects"
 NEXT_METADATA_SEND = 0
-NEXT_METADATA_SEND_INTERVAL = \
-    [1, 60, 3600 + random.randint(0, 60), 86400 + random.randint(0, 600)]
+NEXT_METADATA_SEND_INTERVAL = [random.randint(0, 60), 60,
+                               3600 + random.randint(0, 60),
+                               86400 + random.randint(0, 600)]
 LAST = 0
 AWS = True
 AWS_SET = False
 PROCESS_INFO = True
+DATAPOINTS = True
 DPM = False
 UTILIZATION = True
 INTERVAL = 10
@@ -581,15 +588,6 @@ class UtilizationFactory:
         :param values_obj: collectd.python Values object
         :return: None
         """
-        if DPM:
-            with RESPONSE_LOCK:
-                global DATAPOINT_COUNT
-                DATAPOINT_COUNT.setdefault(values_obj.plugin, 0)
-                DATAPOINT_COUNT[values_obj.plugin] += len(values_obj.values)
-
-        if not UTILIZATION:
-            return
-
         with METRIC_LOCK:
             for u in self.utilizations:
                 try:
@@ -681,6 +679,9 @@ def plugin_config(conf):
         elif kv.key == 'ProcessInfo':
             global PROCESS_INFO
             PROCESS_INFO = kv.values[0]
+        elif kv.key == 'Datapoints':
+            global DATAPOINTS
+            DATAPOINTS = kv.values[0]
         elif kv.key == 'Utilization':
             global UTILIZATION
             UTILIZATION = kv.values[0]
@@ -726,8 +727,9 @@ def plugin_config(conf):
     else:
         collectd.register_notification(steal_host_from_notifications)
 
-    if DPM or UTILIZATION:
-        collectd.register_write(UTILIZATION_INSTANCE.write)
+    collectd.register_write(write)
+
+    if UTILIZATION:
         collectd.register_read(UTILIZATION_INSTANCE.read, 1,
                                name="utilization_reads")
 
@@ -737,6 +739,28 @@ def plugin_config(conf):
 
 def compact(thing):
     return json.dumps(thing, separators=(',', ':'))
+
+
+def write(values_obj):
+    if DPM:
+        with RESPONSE_LOCK:
+            global DATAPOINT_COUNT
+            DATAPOINT_COUNT.setdefault(values_obj.plugin, 0)
+            DATAPOINT_COUNT[values_obj.plugin] += len(values_obj.values)
+
+    if UTILIZATION:
+        UTILIZATION_INSTANCE.write(values_obj)
+
+    # race notifications for grabbing host
+    steal_host_from_notifications(values_obj)
+
+    global MAX_LENGTH
+    if not MAX_LENGTH and values_obj.plugin == PLUGIN_NAME and PLUGIN_UPTIME \
+            in values_obj.type_instance \
+            and values_obj.type_instance[-1] is not "]":
+        MAX_LENGTH = len(values_obj.type_instance)
+        log("This collectd has a limit of %s characters; will adhere to "
+            "that" % MAX_LENGTH)
 
 
 def send():
@@ -752,21 +776,25 @@ def send():
     send_top()
 
     # race condition with host dimension existing
-    # don't send metadata on initial iteration, but on second
-    # send it then on minute later, then one hour, then one day, then once a
-    # day from then on but off by a fudge factor
+    # don't send metadata on initial iteration, but on a random interval in
+    # the first six, send it then one minute later, then one hour, then one
+    # day, then once a day from then on but off by a fudge factor
     global NEXT_METADATA_SEND
     if NEXT_METADATA_SEND == 0:
-        NEXT_METADATA_SEND = time.time() + NEXT_METADATA_SEND_INTERVAL.pop(0)
-        log("waiting one interval before sending notifications")
+        dither = NEXT_METADATA_SEND_INTERVAL.pop(0)
+        NEXT_METADATA_SEND = time.time() + dither
+        log(
+            "adding small dither of %s seconds before sending notifications"
+            % dither)
     if NEXT_METADATA_SEND < time.time():
         send_notifications()
         if len(NEXT_METADATA_SEND_INTERVAL) > 1:
             NEXT_METADATA_SEND = \
                 time.time() + NEXT_METADATA_SEND_INTERVAL.pop(0)
+            log("till next metadata %s seconds" % str(
+                NEXT_METADATA_SEND - time.time()))
         else:
             NEXT_METADATA_SEND = time.time() + NEXT_METADATA_SEND_INTERVAL[0]
-        log("till next metadata " + str(NEXT_METADATA_SEND - time.time()))
 
     global LAST
     LAST = time.time()
@@ -858,8 +886,6 @@ def get_kernel_info(host_info={}):
     """
     try:
         host_info["host_kernel_name"] = platform.system()
-        host_info["host_kernel_release"] = platform.release()
-        host_info["host_kernel_version"] = platform.version()
         host_info["host_machine"] = platform.machine()
         host_info["host_processor"] = platform.processor()
     except:
@@ -923,66 +949,74 @@ def popen(command):
     return output.strip()
 
 
-def get_collectd_version(host_info={}):
+def get_collectd_version():
     """
     exec the pid (which will be collectd) with help and parse the help
     message for the version information
     """
-    host_info["host_collectd_version"] = "UNKNOWN"
+
+    global COLLECTD_VERSION
+    if COLLECTD_VERSION:
+        return COLLECTD_VERSION
+
+    COLLECTD_VERSION = "UNKNOWN"
     try:
         output = popen(["/proc/self/exe", "-h"])
         regexed = re.search("collectd (.*), http://collectd.org/",
                             output.decode())
         if regexed:
-            host_info["host_collectd_version"] = regexed.groups()[0]
+            COLLECTD_VERSION = regexed.groups()[0]
     except Exception:
         t, e = sys.exc_info()[:2]
         log("trying to parse collectd version failed %s" % e)
 
-    return host_info
+    return COLLECTD_VERSION
 
 
-def getLsbRelease(host_info={}):
+def getLsbRelease():
     if os.path.isfile("/etc/lsb-release"):
         with open("/etc/lsb-release") as f:
             for line in f.readlines():
                 regexed = re.search('DISTRIB_DESCRIPTION="(.*)"', line)
                 if regexed:
-                    host_info["host_linux_version"] = regexed.groups()[0]
-                    return host_info["host_linux_version"]
+                    return regexed.groups()[0]
 
 
-def getOsRelease(host_info={}):
+def getOsRelease():
     if os.path.isfile("/etc/os-release"):
         with open("/etc/os-release") as f:
             for line in f.readlines():
                 regexed = re.search('PRETTY_NAME="(.*)"', line)
                 if regexed:
-                    host_info["host_linux_version"] = regexed.groups()[0]
-                    return host_info["host_linux_version"]
+                    return regexed.groups()[0]
 
 
-def getCentos(host_info={}):
+def getCentos():
     for file in ["/etc/centos-release", "/etc/redhat-release",
                  "/etc/system-release"]:
         if os.path.isfile(file):
             with open(file) as f:
                 line = f.read()
-                host_info["host_linux_version"] = line.strip()
-                return host_info["host_linux_version"]
+                return line.strip()
 
 
-def get_linux_version(host_info={}):
+def get_linux_version():
     """
     read a variety of files to figure out linux version
     """
 
-    for f in [getLsbRelease, getOsRelease, getCentos]:
-        if f(host_info):
-            return
+    global LINUX_VERSION
+    if LINUX_VERSION:
+        return LINUX_VERSION
 
-    host_info["host_linux_version"] = "UNKNOWN"
-    return host_info
+    for f in [getLsbRelease, getOsRelease, getCentos]:
+        version = f()
+        if version:
+            LINUX_VERSION = version
+            return LINUX_VERSION
+
+    LINUX_VERSION = "UNKNOWN"
+    return LINUX_VERSION
 
 
 def parse_bytes(possible_bytes):
@@ -1111,14 +1145,17 @@ def get_memory(host_info):
 
 def get_host_info():
     """ aggregate all host info """
-    host_info = {"host_metadata_version": VERSION}
+    host_info = {}
     get_cpu_info(host_info)
     get_kernel_info(host_info)
     get_aws_info(host_info)
-    get_collectd_version(host_info)
-    get_linux_version(host_info)
     get_memory(host_info)
     get_interfaces(host_info)
+    host_info["host_metadata_version"] = VERSION
+    host_info["host_collectd_version"] = get_collectd_version()
+    host_info["host_linux_version"] = get_linux_version()
+    host_info["host_kernel_release"] = platform.release()
+    host_info["host_kernel_version"] = platform.version()
     return host_info
 
 
@@ -1172,8 +1209,28 @@ def get_uptime():
 
 
 def send_datapoints():
-    """write proof-of-life datapoint"""
-    put_val("", "sf.host-plugin_uptime", [get_uptime(), "gauge"])
+    """
+    emit three datapoints:
+     - sf.host-resposne.errors : number of errors seen this interval sending
+     notifications (if any)
+     - sf.host-response.max : max round trip time in nanoseconds it took to
+     send notifications (if any)
+     - sf.host-plugin_uptime : uptime in seconds of the plugin with
+     dimensions containing metadata
+    :return: None
+    """
+
+    if not DATAPOINTS:
+        return
+
+    plugin_instance = "[metadata=%s,collectd=%s]" % (
+        VERSION, get_collectd_version())
+    type_instance = "%s[linux=%s,release=%s,version=%s]" % (
+        PLUGIN_UPTIME, get_linux_version(), platform.release(),
+        platform.version())
+    if MAX_LENGTH and len(type_instance) > MAX_LENGTH:
+        type_instance = PLUGIN_UPTIME
+    put_val(plugin_instance, type_instance, [get_uptime(), "gauge"])
     global MAX_RESPONSE
     maximum = MAX_RESPONSE
     MAX_RESPONSE = 0
@@ -1186,7 +1243,6 @@ def send_datapoints():
             dpm = {}
             for k, v in dp.items():
                 dpm[k] = int((v / diff) * 60.0)
-        if dpm:
             for k, v in dpm.items():
                 put_val(k, "sf.host-dpm", [v, "gauge"])
 
