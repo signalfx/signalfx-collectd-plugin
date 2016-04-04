@@ -1,5 +1,13 @@
-0.0.20 / 2016-03-31
+0.0.21 / 2016-04-04
 ===================
+
+* send version information as dimensions on the plugin_uptime metric
+* work around issue where collectd segfaults on shutdown when write callback
+  is an instance method
+* add way to turn off datapoints
+* add dither to initial notifications
+
+0.0.20 / 2016-03-31
 
 * change memory.utilization to not include cached, bufferred or slab but just
   be used/total
