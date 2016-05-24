@@ -53,6 +53,12 @@ except ImportError:
     except:
         pass
 
+if sys.platform == 'darwin':
+    try:
+        from netifaces import interfaces, ifaddresses, AF_INET
+    except:
+        pass
+
 PLUGIN_NAME = 'signalfx-metadata'
 API_TOKENS = []
 TIMEOUT = 3
@@ -282,7 +288,12 @@ class MemoryUtilization(Utilization):
             m = self.metrics[t]
             if len(m) == self.size:
                 total = sum(c[0] for c in m.values())
-                used = m["memory.used"][0]
+                used = 0
+                if sys.platform == 'darwin':
+                    used = m["memory.active"][0] + m["memory.wired"][0]
+                else:
+                    used = m["memory.used"][0]
+
                 self.emit_utilization(t, used, total,
                                       "memory.utilization", obj=m)
             else:
@@ -314,9 +325,13 @@ class CpuUtilization(Utilization):
 
         :return: None
         """
+        min_expected_metrics = 8
+        if sys.platform == 'darwin':
+            min_expected_metrics = 4
+
         for t in sorted(self.metrics.keys()):
 
-            if len(self.metrics[t]) == 8:
+            if len(self.metrics[t]) >= min_expected_metrics:
                 # debug("kept %s %s" % (t, self.metrics[t]))
                 self.last.update(self.metrics[t])
                 total = sum(c[0] for c in self.last.values())
@@ -801,40 +816,56 @@ def send():
 
 
 def all_interfaces():
-    """
-    source # http://bit.ly/1K8LIFH
-    could use netifaces but want to package as little code as possible
 
-    :return: all ip addresses by interface
     """
-    is_64bits = struct.calcsize("P") == 8
-    struct_size = 32
-    if is_64bits:
-        struct_size = 40
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    max_possible = 8  # initial value
-    while True:
-        _bytes = max_possible * struct_size
-        names = array.array('B')
-        for i in range(0, _bytes):
-            names.append(0)
-        outbytes = struct.unpack('iL', fcntl.ioctl(
-            s.fileno(),
-            0x8912,  # SIOCGIFCONF
-            struct.pack('iL', _bytes, names.buffer_info()[0])
-        ))[0]
-        if outbytes == _bytes:
-            max_possible *= 2
-        else:
-            break
-    namestr = names.tostring()
-    ifaces = []
-    for i in range(0, outbytes, struct_size):
-        iface_name = bytes.decode(namestr[i:i + 16]).split('\0', 1)[0]
-        iface_addr = socket.inet_ntoa(namestr[i + 20:i + 24])
-        ifaces.append((iface_name, iface_addr))
+        On macosx only use netifaces
+        :return: all ip addresses by interface.
+                 or empty list if netifaces not installed
+    """
+    if sys.platform == 'darwin':
+        ifaces = []
+        try:
+            for interface in interfaces():
+                for link in ifaddresses(interface).get(AF_INET, ()):
+                    ifaces.append((interface, link['addr']))
+        except:
+            pass
+        return ifaces
+    else:
+        """
+        source # http://bit.ly/1K8LIFH
+        could use netifaces but want to package as little code as possible
 
-    return ifaces
+        :return: all ip addresses by interface
+        """
+        is_64bits = struct.calcsize("P") == 8
+        struct_size = 32
+        if is_64bits:
+            struct_size = 40
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        max_possible = 8  # initial value
+        while True:
+            _bytes = max_possible * struct_size
+            names = array.array('B')
+            for i in range(0, _bytes):
+                names.append(0)
+            outbytes = struct.unpack('iL', fcntl.ioctl(
+                s.fileno(),
+                0x8912,  # SIOCGIFCONF
+                struct.pack('iL', _bytes, names.buffer_info()[0])
+            ))[0]
+            if outbytes == _bytes:
+                max_possible *= 2
+            else:
+                break
+        namestr = names.tostring()
+        ifaces = []
+        for i in range(0, outbytes, struct_size):
+            iface_name = bytes.decode(namestr[i:i + 16]).split('\0', 1)[0]
+            iface_addr = socket.inet_ntoa(namestr[i + 20:i + 24])
+            ifaces.append((iface_name, iface_addr))
+
+        return ifaces
 
 
 def get_interfaces(host_info={}):
@@ -849,32 +880,49 @@ def get_interfaces(host_info={}):
 
 
 def get_cpu_info(host_info={}):
-    """populate host_info with cpu information"""
-    with open("/proc/cpuinfo") as f:
-        nb_cpu = 0
-        nb_cores = 0
-        nb_units = 0
-        for p in f.readlines():
-            if ':' in p:
-                x, y = map(lambda x: x.strip(), p.split(':', 1))
-                if x.startswith("physical id"):
-                    if nb_cpu < int(y):
-                        nb_cpu = int(y)
-                if x.startswith("cpu cores"):
-                    if nb_cores < int(y):
-                        nb_cores = int(y)
-                if x.startswith("processor"):
-                    if nb_units < int(y):
-                        nb_units = int(y)
-                if x.startswith("model name"):
-                    model = y
 
-        nb_cpu += 1
-        nb_units += 1
-        host_info["host_cpu_model"] = model
-        host_info["host_physical_cpus"] = str(nb_cpu)
-        host_info["host_cpu_cores"] = str(nb_cores)
-        host_info["host_logical_cpus"] = str(nb_units)
+    """populate host_info with cpu information"""
+    if sys.platform == 'darwin':
+        host_info["host_cpu_model"] = \
+            popen(["sysctl", "-n", "machdep.cpu.brand_string"])
+        host_info["host_cpu_cores"] = \
+            popen(["sysctl", "-n", "machdep.cpu.core_count"])
+        host_info["host_logical_cpus"] = \
+            popen(["sysctl", "-n", "hw.logicalcpu"])
+
+        num_processor_result = popen(["system_profiler", "SPHardwareDataType"])
+        for x in num_processor_result.splitlines():
+            if x.strip().startswith("Number of Processors"):
+                host_info["host_physical_cpus"] = \
+                    x.strip().split(":")[1].strip()
+                break
+
+    else:
+        with open("/proc/cpuinfo") as f:
+            nb_cpu = 0
+            nb_cores = 0
+            nb_units = 0
+            for p in f.readlines():
+                if ':' in p:
+                    x, y = map(lambda x: x.strip(), p.split(':', 1))
+                    if x.startswith("physical id"):
+                        if nb_cpu < int(y):
+                            nb_cpu = int(y)
+                    if x.startswith("cpu cores"):
+                        if nb_cores < int(y):
+                            nb_cores = int(y)
+                    if x.startswith("processor"):
+                        if nb_units < int(y):
+                            nb_units = int(y)
+                    if x.startswith("model name"):
+                        model = y
+
+            nb_cpu += 1
+            nb_units += 1
+            host_info["host_cpu_model"] = model
+            host_info["host_physical_cpus"] = str(nb_cpu)
+            host_info["host_cpu_cores"] = str(nb_cores)
+            host_info["host_logical_cpus"] = str(nb_units)
 
     return host_info
 
@@ -961,7 +1009,11 @@ def get_collectd_version():
 
     COLLECTD_VERSION = "UNKNOWN"
     try:
-        output = popen(["/proc/self/exe", "-h"])
+        if sys.platform == 'darwin':
+            output = popen(["/usr/local/sbin/collectd", "-h"])
+        else:
+            output = popen(["/proc/self/exe", "-h"])
+
         regexed = re.search("collectd (.*), http://collectd.org/",
                             output.decode())
         if regexed:
@@ -1064,11 +1116,16 @@ def read_proc_file(pid, file, field=None):
 
 
 def get_priority(pid):
-    val = read_proc_file(pid, "sched", "prio")
-    val = int(val) - 100
-    if val < 0:
-        val = 99
-    return val
+
+    if sys.platform == 'darwin':
+        result = popen(["ps", "-O", "pri", "-p", str(pid)]).splitlines()
+        return result[1].split()[1]
+    else:
+        val = read_proc_file(pid, "sched", "prio")
+        val = int(val) - 100
+        if val < 0:
+            val = 99
+        return val
 
 
 def get_command(p):
@@ -1107,18 +1164,24 @@ def send_top():
     top = {}
     for p in psutil.process_iter():
         try:
+            cpu_nice_value = p.nice()
+            command_value = p.name()
+            if sys.platform != 'darwin':
+                cpu_nice_value = get_nice(p)
+                command_value = get_command(p)
+
             top[p.pid] = [
                 p.username(),  # user
                 get_priority(p.pid),  # priority
-                get_nice(p),  # nice value, numerical
-                p.memory_info_ex()[1] / 1024,  # virtual memory size in kb int
-                p.memory_info_ex()[0] / 1024,  # resident memory size in kb int
-                p.memory_info_ex()[2] / 1024,  # shared memory size in kb int
+                cpu_nice_value,  # nice value, numerical
+                p.memory_info_ex()[1] / 1024,  # virtual memory size in kb
+                p.memory_info_ex()[0] / 1024,  # resident memory size in kb
+                p.memory_info_ex()[2] / 1024,  # shared memory size in kb
                 status_map.get(p.status(), "D"),  # process status
                 p.cpu_percent(),  # % cpu, float
                 p.memory_percent(),  # % mem, float
-                to_time(p.cpu_times().system + p.cpu_times().user),  # cpu time
-                get_command(p)  # command
+                to_time(p.cpu_times().system + p.cpu_times().user),  # cpu
+                command_value  # command
             ]
         except Exception:
             # eat exceptions here because they're very noisy
@@ -1134,11 +1197,16 @@ def send_top():
 
 
 def get_memory(host_info):
-    """get total physical memory for machine"""
-    with open("/proc/meminfo") as f:
-        pieces = f.readline()
-        _, mem_total, _ = pieces.split()
-        host_info["host_mem_total"] = mem_total
+
+    if sys.platform == 'darwin':
+        host_info["host_mem_total"] = \
+            str(int(popen(["sysctl", "-n", "hw.memsize"])) / 1024)
+    else:
+        """get total physical memory for machine"""
+        with open("/proc/meminfo") as f:
+            pieces = f.readline()
+            _, mem_total, _ = pieces.split()
+            host_info["host_mem_total"] = mem_total
 
     return host_info
 
