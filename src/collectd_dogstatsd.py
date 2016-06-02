@@ -123,8 +123,8 @@ class SignalfxPointSender(object):
         self.host = ""
 
         import signalfx
-        self.sfx = signalfx.SignalFx(config.api_token,
-                                     ingest_endpoint=config.ingest_endpoint)
+        sfx = signalfx.SignalFx(ingest_endpoint=config.ingest_endpoint)
+        self.sfx = sfx.ingest(config.api_token)
 
     def send_points(self, metrics):
         gauges = []
