@@ -1,9 +1,14 @@
+0.0.24 / 2016-06-28
+===================
+
+* no longer report gauge.sf.host-dpm as it was an instantaneous rate of change
+  and comparisons with it were inaccurate.
+
 0.0.23 / 2016-06-02
 
 * upgrade to latest signalfx-python
 
 0.0.21 / 2016-04-04
-===================
 
 * send version information as dimensions on the plugin_uptime metric
 * work around issue where collectd segfaults on shutdown when write callback

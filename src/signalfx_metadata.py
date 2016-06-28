@@ -81,7 +81,6 @@ AWS = True
 AWS_SET = False
 PROCESS_INFO = True
 DATAPOINTS = True
-DPM = False
 UTILIZATION = True
 INTERVAL = 10
 HOST = ""
@@ -93,7 +92,6 @@ RESPONSE_LOCK = threading.Lock()
 METRIC_LOCK = threading.Lock()
 MAX_RESPONSE = 0
 RESPONSE_ERRORS = 0
-DATAPOINT_COUNT = {}
 
 DOGSTATSD_INSTANCE = collectd_dogstatsd.DogstatsDCollectD(collectd)
 
@@ -595,7 +593,7 @@ class UtilizationFactory:
 
     def write(self, values_obj):
         """
-        write callback method. Useful for DPM calculations and aggregations.
+        write callback method.
 
         The write methods for each utilization are listening for metrics of
         the type they want.
@@ -700,9 +698,6 @@ def plugin_config(conf):
         elif kv.key == 'Utilization':
             global UTILIZATION
             UTILIZATION = kv.values[0]
-        elif kv.key == 'DPM':
-            global DPM
-            DPM = kv.values[0]
         elif kv.key == 'Verbose':
             global DEBUG
             DEBUG = kv.values[0]
@@ -757,12 +752,6 @@ def compact(thing):
 
 
 def write(values_obj):
-    if DPM:
-        with RESPONSE_LOCK:
-            global DATAPOINT_COUNT
-            DATAPOINT_COUNT.setdefault(values_obj.plugin, 0)
-            DATAPOINT_COUNT[values_obj.plugin] += len(values_obj.values)
-
     if UTILIZATION:
         UTILIZATION_INSTANCE.write(values_obj)
 
@@ -1302,18 +1291,6 @@ def send_datapoints():
     global MAX_RESPONSE
     maximum = MAX_RESPONSE
     MAX_RESPONSE = 0
-    if DPM:
-        global DATAPOINT_COUNT
-        with RESPONSE_LOCK:
-            dp = DATAPOINT_COUNT
-            DATAPOINT_COUNT = {}
-            diff = time.time() - LAST
-            dpm = {}
-            for k, v in dp.items():
-                dpm[k] = int((v / diff) * 60.0)
-            for k, v in dpm.items():
-                put_val(k, "sf.host-dpm", [v, "gauge"])
-
     if maximum:
         put_val("", "sf.host-response.max", [maximum, "gauge"])
 
