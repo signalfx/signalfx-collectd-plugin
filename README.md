@@ -19,7 +19,6 @@ TypesDB "/opt/signalfx-collectd-plugin/types.db.plugin"
     Token "<<<<<<INSERT_TOKEN_HERE>>>>>>"
     Notifications true
     NotifyLevel "OKAY"
-    DPM true
     Utilization true
     Interval 10
   </Module>
@@ -44,8 +43,6 @@ For metadata:
   this plugin, set to the appropriate level. "OKAY" would mean all
   notifications are emitted.  "ERROR" would just be error.  "WARNING" would
   include "ERROR" and "WARNING".
-* DPM: would you like the plugin to give you merics on your dpm on a per plugin
-  basis? Default is false.  Metric name in is gauge.sf.host-dpm.
 * Utilization: would you like the plugin to send in utilization metrics?
   Default is true.
 * Datapoints: would you like the plugin to send in metrics about max round
