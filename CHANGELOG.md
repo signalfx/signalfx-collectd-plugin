@@ -1,5 +1,9 @@
-0.0.24 / 2016-06-28
+0.0.25 / 2016-08-01
 ===================
+
+* Upgrade to latest signalfx-python v1.0.4
+
+0.0.24 / 2016-06-28
 
 * no longer report gauge.sf.host-dpm as it was an instantaneous rate of change
   and comparisons with it were inaccurate.
