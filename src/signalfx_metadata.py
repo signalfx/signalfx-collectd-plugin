@@ -64,7 +64,7 @@ API_TOKENS = []
 TIMEOUT = 3
 POST_URLS = []
 DEFAULT_POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.25"
+VERSION = "0.0.26"
 MAX_LENGTH = 0
 COLLECTD_VERSION = ""
 LINUX_VERSION = ""
@@ -94,6 +94,8 @@ MAX_RESPONSE = 0
 RESPONSE_ERRORS = 0
 
 DOGSTATSD_INSTANCE = collectd_dogstatsd.DogstatsDCollectD(collectd)
+PERCORECPUUTIL = False
+OVERALLCPUUTIL = True
 
 
 class mdict(dict):
@@ -153,7 +155,7 @@ class Utilization(object):
         metric_time[metric] = values_obj.values
 
     def emit_utilization(self, t, used, total, metric,
-                         plugin_instance="utilization", obj=None):
+                         plugin_instance="utilization", obj=None, dims=None):
         """
         emit a utilization metric
 
@@ -169,6 +171,9 @@ class Utilization(object):
             percent = 0
         else:
             percent = 1.0 * used / total * 100
+        if dims is not None:
+            plugin_instance += '[{dims}]'.format(dims=','.join(['='.join(d)
+                                                 for d in dims.items()]))
         if percent < 0:
             log("percent <= 0 %s %s %s %s %s" %
                 (used, total, metric, plugin_instance, obj))
@@ -299,6 +304,102 @@ class MemoryUtilization(Utilization):
             del (self.metrics[t])
 
 
+class CpuUtilizationCalculator():
+
+    def __init__(self, core):
+        self.core = core
+        self.last = {}
+        self.old_total = 0
+        self.old_idle = 0
+        self.old_used = 0
+
+    def calculateUtilization(self, t, metric):
+        """
+        Calculate cpu utilization metric
+        :return: (t, used_diff, total_diff) or None
+        """
+
+        response = None
+        self.last.update(metric)
+        total = sum(c[0] for c in self.last.values())
+        idle = self.last.get("cpu.idle", [0])[0]
+        used = total - idle
+        if self.old_total != 0:
+            used_diff = used - self.old_used
+            total_diff = total - self.old_total
+            if used_diff < 0 or total_diff < 0:
+                log("t %s used %s total %s old used %s old total %s" %
+                    (t, used, total, self.old_used, self.old_total))
+            elif used_diff == 0 and total_diff == 0:
+                log("zeros %s %s" % (self.last, metric))
+            else:
+                response = (t, used_diff, total_diff)
+        self.old_total = total
+        self.old_idle = idle
+        self.old_used = used
+        return response
+
+
+class CpuUtilizationPerCore(PluginInstanceUtilization):
+    """
+    CpuUtilization gives a 0 <=gauge <=100 of the overall utilization of each
+    cpu core.
+    """
+    def __init__(self):
+        PluginInstanceUtilization.__init__(self)
+        self.cores = {}
+
+    def is_metric(self, values_obj):
+        return (values_obj.plugin == "cpu")
+
+    def read(self):
+        """"
+        emit cpu utilization metric when we've seen all the cpu aggregation
+        metrics we need.  Have to watch out for incomplete metrics.
+
+        :return: None
+        """
+        if PERCORECPUUTIL is True:
+            min_expected_metrics = 8
+            if sys.platform == 'darwin':
+                min_expected_metrics = 4
+            for t in sorted(self.metrics.keys()):
+                skip = False
+                # Iterate over all cpu's to check if all metrics are reported
+                # Because we have to skip the whole metric containing
+                # information on both cores
+                for core in self.metrics[t].keys():
+                    if len(self.metrics[t][core]) < min_expected_metrics:
+                        skip = True
+                if skip:
+                    # skip em once to give metrics time to arrive
+                    if self.metrics[t].skipped:
+                        debug("incomplete metric %s %s" % (t, self.metrics[t]))
+                        del (self.metrics[t])
+                    else:
+                        self.metrics[t].skipped = True
+                # If the metric is not skipped, then proceed with calculation
+                else:
+                    for core in self.metrics[t].keys():
+                        # Add core to self.cores if necessary
+                        if core not in self.cores.keys():
+                            self.cores[core] = CpuUtilizationCalculator(core)
+
+                        response = self.cores[core].calculateUtilization(
+                            t,
+                            self.metrics[t][core]
+                        )
+
+                        if response is not None:
+                            self.emit_utilization(
+                                *response,
+                                metric="cpu.utilization_per_core",
+                                obj=(t, self.metrics[t][core]),
+                                dims={"core": "cpu{0}".format(core)}
+                            )
+                    del (self.metrics[t])
+
+
 class CpuUtilization(Utilization):
     """
     CpuUtilization gives a 0 <=gauge <=100 of the overall utilization of cpu.
@@ -306,10 +407,7 @@ class CpuUtilization(Utilization):
 
     def __init__(self):
         Utilization.__init__(self)
-        self.last = {}
-        self.old_total = 0
-        self.old_idle = 0
-        self.old_used = 0
+        self.util_calc = CpuUtilizationCalculator(0)
 
     def is_metric(self, values_obj):
         return (values_obj.plugin == "aggregation" and
@@ -330,27 +428,15 @@ class CpuUtilization(Utilization):
         for t in sorted(self.metrics.keys()):
 
             if len(self.metrics[t]) >= min_expected_metrics:
-                # debug("kept %s %s" % (t, self.metrics[t]))
-                self.last.update(self.metrics[t])
-                total = sum(c[0] for c in self.last.values())
-                idle = self.last.get("cpu.idle", [0])[0]
-                used = total - idle
-                if self.old_total != 0:
-                    used_diff = used - self.old_used
-                    total_diff = total - self.old_total
-                    if used_diff < 0 or total_diff < 0:
-                        log("t %s used %s total %s old used %s old total %s" %
-                            (t, used, total, self.old_used, self.old_total))
-                    elif used_diff == 0 and total_diff == 0:
-                        log("zeros %s %s" % (self.last, self.metrics[t]))
-                    else:
-                        self.emit_utilization(t, used_diff, total_diff,
-                                              "cpu.utilization",
-                                              obj=(t, self.metrics[t]))
+                response = self.util_calc.calculateUtilization(
+                    t,
+                    self.metrics[t]
+                )
+                if response is not None:
+                    self.emit_utilization(*response,
+                                          metric="cpu.utilization",
+                                          obj=(t, self.metrics[t]))
                 del (self.metrics[t])
-                self.old_total = total
-                self.old_idle = idle
-                self.old_used = used
             else:
                 # skip em once to give metrics time to arrive
                 if self.metrics[t].skipped:
@@ -589,7 +675,7 @@ class UtilizationFactory:
     def __init__(self):
         self.utilizations = [CpuUtilization(), MemoryUtilization(),
                              DfUtilization(), NetworkTotal(), DiskTotal(),
-                             DfTotalUtilization()]
+                             DfTotalUtilization(), CpuUtilizationPerCore()]
 
     def write(self, values_obj):
         """
@@ -698,6 +784,12 @@ def plugin_config(conf):
         elif kv.key == 'Utilization':
             global UTILIZATION
             UTILIZATION = kv.values[0]
+        elif kv.key == 'PerCoreCPUUtil':
+            global PERCORECPUUTIL
+            PERCORECPUUTIL = kv.values[0]
+        elif kv.key == 'OverallCPUUtil':
+            global OVERALLCPUUTIL
+            OVERALLCPUUTIL = kv.values[0]
         elif kv.key == 'Verbose':
             global DEBUG
             DEBUG = kv.values[0]
@@ -742,6 +834,12 @@ def plugin_config(conf):
     if UTILIZATION:
         collectd.register_read(UTILIZATION_INSTANCE.read, 1,
                                name="utilization_reads")
+
+    if OVERALLCPUUTIL is not True:
+        log("Overall cpu utilization has been disabled via configuration")
+
+    if PERCORECPUUTIL is True:
+        log("Cpu utilization per core has been enabled via configuration")
 
     collectd.register_read(send, INTERVAL)
     set_aws_url(get_aws_info())
