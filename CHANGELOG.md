@@ -1,5 +1,9 @@
-0.0.25 / 2016-08-03
+0.0.26 / 2016-09-08
 ===================
+
+* Add optional configuration to report cpu utilization on a per core basis
+
+0.0.25 / 2016-08-03
 
 * Upgrade to latest signalfx-python v1.0.4
 

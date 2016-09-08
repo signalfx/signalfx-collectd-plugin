@@ -45,6 +45,8 @@ For metadata:
   include "ERROR" and "WARNING".
 * Utilization: would you like the plugin to send in utilization metrics?
   Default is true.
+* PerCoreCPUUtil: would you like the plugin to send in utilization metrics for
+  each processor?  Default is false
 * Datapoints: would you like the plugin to send in metrics about max round
   trip time, plugin uptime and notification sending errors?  Default is true.
 

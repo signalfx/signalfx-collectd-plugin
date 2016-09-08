@@ -1,4 +1,5 @@
 cpu.utilization        value:GAUGE:0:100.1
+cpu.utilization_per_core value:GAUGE:0:100.1
 disk.utilization       value:GAUGE:0:100.1
 disk.summary_utilization       value:GAUGE:0:100.1
 disk_ops.total         value:COUNTER:0:U
