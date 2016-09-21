@@ -1,5 +1,9 @@
-0.0.26 / 2016-09-08
+0.0.27 / 2016-09-21
 ===================
+
+* Periodically check if the plugin is running on AWS
+
+0.0.26 / 2016-09-08
 
 * Add optional configuration to report cpu utilization on a per core basis
 
