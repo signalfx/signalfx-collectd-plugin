@@ -64,7 +64,7 @@ API_TOKENS = []
 TIMEOUT = 3
 POST_URLS = []
 DEFAULT_POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.26"
+VERSION = "0.0.27"
 MAX_LENGTH = 0
 COLLECTD_VERSION = ""
 LINUX_VERSION = ""
@@ -883,6 +883,7 @@ def send():
     # day, then once a day from then on but off by a fudge factor
     global NEXT_METADATA_SEND
     if NEXT_METADATA_SEND == 0:
+        set_aws_url(get_aws_info())
         dither = NEXT_METADATA_SEND_INTERVAL.pop(0)
         NEXT_METADATA_SEND = time.time() + dither
         log(
@@ -1041,7 +1042,7 @@ def get_aws_info(host_info={}):
     url = "http://169.254.169.254/latest/dynamic/instance-identity/document"
     try:
         req = urllib2.Request(url)
-        response = urllib2.urlopen(req, timeout=0.1)
+        response = urllib2.urlopen(req, timeout=0.2)
         identity = json.loads(response.read())
         want = {
             'availability_zone': 'availabilityZone',
