@@ -883,6 +883,7 @@ def send():
     # day, then once a day from then on but off by a fudge factor
     global NEXT_METADATA_SEND
     if NEXT_METADATA_SEND == 0:
+        set_aws_url(get_aws_info())
         dither = NEXT_METADATA_SEND_INTERVAL.pop(0)
         NEXT_METADATA_SEND = time.time() + dither
         log(
@@ -1041,7 +1042,7 @@ def get_aws_info(host_info={}):
     url = "http://169.254.169.254/latest/dynamic/instance-identity/document"
     try:
         req = urllib2.Request(url)
-        response = urllib2.urlopen(req, timeout=0.1)
+        response = urllib2.urlopen(req, timeout=0.2)
         identity = json.loads(response.read())
         want = {
             'availability_zone': 'availabilityZone',
