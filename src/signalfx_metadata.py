@@ -64,7 +64,7 @@ API_TOKENS = []
 TIMEOUT = 3
 POST_URLS = []
 DEFAULT_POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.26"
+VERSION = "0.0.27"
 MAX_LENGTH = 0
 COLLECTD_VERSION = ""
 LINUX_VERSION = ""
@@ -77,7 +77,7 @@ NEXT_METADATA_SEND_INTERVAL = [random.randint(0, 60), 60,
                                3600 + random.randint(0, 60),
                                86400 + random.randint(0, 600)]
 LAST = 0
-AWS = True
+AWS = False
 AWS_SET = False
 PROCESS_INFO = True
 DATAPOINTS = True
@@ -842,7 +842,7 @@ def plugin_config(conf):
         log("Cpu utilization per core has been enabled via configuration")
 
     collectd.register_read(send, INTERVAL)
-    set_aws_url(get_aws_info())
+    get_aws_info()
 
 
 def compact(thing):
@@ -1032,16 +1032,13 @@ def get_kernel_info(host_info={}):
 def get_aws_info(host_info={}):
     """
     call into aws to get some information about the instance, timeout really
-    small for non aws systems and only try the once per startup
+    small for non aws systems.
     """
     global AWS
-    if not AWS:
-        return host_info
-
     url = "http://169.254.169.254/latest/dynamic/instance-identity/document"
     try:
         req = urllib2.Request(url)
-        response = urllib2.urlopen(req, timeout=0.1)
+        response = urllib2.urlopen(req, timeout=0.2)
         identity = json.loads(response.read())
         want = {
             'availability_zone': 'availabilityZone',
@@ -1054,6 +1051,9 @@ def get_aws_info(host_info={}):
         }
         for k, v in iter(want.items()):
             host_info["aws_" + k] = identity[v]
+        AWS = True
+        set_aws_url(host_info)
+        log("is an aws box")
     except:
         log("not an aws box")
         AWS = False
