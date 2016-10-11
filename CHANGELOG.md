@@ -1,5 +1,10 @@
-0.0.27 / 2016-09-21
+0.0.28 / 2016-10-18
 ===================
+
+* Upgrade to latest signalfx-python v1.0.7
+* Log outdated metrics instead of emitting them
+
+0.0.27 / 2016-09-21
 
 * Periodically check if the plugin is running on AWS
 
