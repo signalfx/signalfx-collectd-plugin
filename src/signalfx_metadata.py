@@ -64,7 +64,7 @@ API_TOKENS = []
 TIMEOUT = 3
 POST_URLS = []
 DEFAULT_POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.27"
+VERSION = "0.0.28"
 MAX_LENGTH = 0
 COLLECTD_VERSION = ""
 LINUX_VERSION = ""
@@ -467,10 +467,13 @@ class Total(PluginInstanceUtilization):
         :param metric: metric to be emitted as
         :return: None
         """
-        total = sum(self.totals.values())
-        put_val("summation", "", [total, metric], t=t, i=self.interval)
-        debug("%s %s %s" % (t, metric, total))
-        self.last_time = t
+        if t <= self.last_time:
+            debug("too old t %s last %s" % (t, self.last_time))
+        else:
+            total = sum(self.totals.values())
+            put_val("summation", "", [total, metric], t=t, i=self.interval)
+            debug("%s %s %s" % (t, metric, total))
+            self.last_time = t
 
     def check_threshold(self):
         """
@@ -522,7 +525,7 @@ class Total(PluginInstanceUtilization):
                     if k in prev:
                         v = current[k] - prev[k]
                         if v < 0:
-                            if t < self.last_time:
+                            if t <= self.last_time:
                                 debug(
                                     "older metric, don't show wrapping t %s "
                                     "last %s" % (t, self.last_time))
