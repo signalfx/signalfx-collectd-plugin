@@ -64,7 +64,7 @@ API_TOKENS = []
 TIMEOUT = 3
 POST_URLS = []
 DEFAULT_POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.27"
+VERSION = "0.0.28"
 MAX_LENGTH = 0
 COLLECTD_VERSION = ""
 LINUX_VERSION = ""
@@ -238,24 +238,29 @@ class DfUtilization(PluginInstanceUtilization):
         :return: None
         """
         for t in sorted(self.metrics.keys()):
-            for plugin_instance in self.metrics[t].keys():
-                m = self.metrics[t][plugin_instance]
-                if len(m) == 3:
-                    used = m["df_complex.used"][0]
-                    free = m["df_complex.free"][0]
-                    total = used + free
-                    self.emit_utilization(t, used, total,
-                                          "disk.utilization",
-                                          plugin_instance, obj=m)
-                    del (self.metrics[t][plugin_instance])
-                else:
-                    # skip em once to give metrics time to arrive
-                    if m.skipped:
-                        debug("incomplete metric %s %s %s" %
-                              (plugin_instance, t, m))
+            # check if metric is too old
+            if t > self.last_time:
+                for plugin_instance in self.metrics[t].keys():
+                    m = self.metrics[t][plugin_instance]
+                    if len(m) == 3:
+                        used = m["df_complex.used"][0]
+                        free = m["df_complex.free"][0]
+                        total = used + free
+                        self.emit_utilization(t, used, total,
+                                              "disk.utilization",
+                                              plugin_instance, obj=m)
                         del (self.metrics[t][plugin_instance])
                     else:
-                        m.skipped = True
+                        # skip em once to give metrics time to arrive
+                        if m.skipped:
+                            debug("incomplete metric %s %s %s" %
+                                  (plugin_instance, t, m))
+                            del (self.metrics[t][plugin_instance])
+                        else:
+                            m.skipped = True
+            else:
+                debug("too old %s %s" % (t, self.metrics[t].keys()))
+                self.metrics[t] = None
             if not self.metrics[t]:
                 del (self.metrics[t])
 
@@ -288,19 +293,23 @@ class MemoryUtilization(Utilization):
                 return
 
         for t in sorted(self.metrics.keys()):
-            m = self.metrics[t]
-            if len(m) == self.size:
-                total = sum(c[0] for c in m.values())
-                used = 0
-                if sys.platform == 'darwin':
-                    used = m["memory.active"][0] + m["memory.wired"][0]
-                else:
-                    used = m["memory.used"][0]
+            if t > self.last_time:
+                m = self.metrics[t]
+                if len(m) == self.size:
+                    total = sum(c[0] for c in m.values())
+                    used = 0
+                    if sys.platform == 'darwin':
+                        used = m["memory.active"][0] + m["memory.wired"][0]
+                    else:
+                        used = m["memory.used"][0]
 
-                self.emit_utilization(t, used, total,
-                                      "memory.utilization", obj=m)
+                    self.emit_utilization(t, used, total,
+                                          "memory.utilization", obj=m)
+                else:
+                    debug("incomplete metric %s %s" % (t, self.metrics[t]))
             else:
-                debug("incomplete metric %s %s" % (t, self.metrics[t]))
+                debug("too old %s %s" % (t, self.metrics[t].keys()))
+                self.metrics[t] = None
             del (self.metrics[t])
 
 
@@ -364,39 +373,46 @@ class CpuUtilizationPerCore(PluginInstanceUtilization):
             if sys.platform == 'darwin':
                 min_expected_metrics = 4
             for t in sorted(self.metrics.keys()):
-                skip = False
-                # Iterate over all cpu's to check if all metrics are reported
-                # Because we have to skip the whole metric containing
-                # information on both cores
-                for core in self.metrics[t].keys():
-                    if len(self.metrics[t][core]) < min_expected_metrics:
-                        skip = True
-                if skip:
-                    # skip em once to give metrics time to arrive
-                    if self.metrics[t].skipped:
-                        debug("incomplete metric %s %s" % (t, self.metrics[t]))
-                        del (self.metrics[t])
-                    else:
-                        self.metrics[t].skipped = True
-                # If the metric is not skipped, then proceed with calculation
-                else:
+                if t > self.last_time:
+                    skip = False
+                    # Iterate over all cpu's to check if all metrics are
+                    # reported. Because we have to skip the whole metric
+                    # containing information on both cores
                     for core in self.metrics[t].keys():
-                        # Add core to self.cores if necessary
-                        if core not in self.cores.keys():
-                            self.cores[core] = CpuUtilizationCalculator(core)
+                        if len(self.metrics[t][core]) < min_expected_metrics:
+                            skip = True
+                    if skip:
+                        # skip em once to give metrics time to arrive
+                        if self.metrics[t].skipped:
+                            debug("incomplete metric %s %s"
+                                  % (t, self.metrics[t]))
+                            del (self.metrics[t])
+                        else:
+                            self.metrics[t].skipped = True
+                    # If the metric is not skipped,
+                    # then proceed with calculation
+                    else:
+                        for core in self.metrics[t].keys():
+                            # Add core to self.cores if necessary
+                            if core not in self.cores.keys():
+                                self.cores[core] = \
+                                    CpuUtilizationCalculator(core)
 
-                        response = self.cores[core].calculateUtilization(
-                            t,
-                            self.metrics[t][core]
-                        )
-
-                        if response is not None:
-                            self.emit_utilization(
-                                *response,
-                                metric="cpu.utilization_per_core",
-                                obj=(t, self.metrics[t][core]),
-                                dims={"core": "cpu{0}".format(core)}
+                            response = self.cores[core].calculateUtilization(
+                                t,
+                                self.metrics[t][core]
                             )
+
+                            if response is not None:
+                                self.emit_utilization(
+                                    *response,
+                                    metric="cpu.utilization_per_core",
+                                    obj=(t, self.metrics[t][core]),
+                                    dims={"core": "cpu{0}".format(core)}
+                                )
+                        del (self.metrics[t])
+                else:
+                    debug("too old %s %s" % (t, self.metrics[t].keys()))
                     del (self.metrics[t])
 
 
@@ -426,24 +442,27 @@ class CpuUtilization(Utilization):
             min_expected_metrics = 4
 
         for t in sorted(self.metrics.keys()):
-
-            if len(self.metrics[t]) >= min_expected_metrics:
-                response = self.util_calc.calculateUtilization(
-                    t,
-                    self.metrics[t]
-                )
-                if response is not None:
-                    self.emit_utilization(*response,
-                                          metric="cpu.utilization",
-                                          obj=(t, self.metrics[t]))
-                del (self.metrics[t])
-            else:
-                # skip em once to give metrics time to arrive
-                if self.metrics[t].skipped:
-                    debug("incomplete metric %s %s" % (t, self.metrics[t]))
+            if t > self.last_time:
+                if len(self.metrics[t]) >= min_expected_metrics:
+                    response = self.util_calc.calculateUtilization(
+                        t,
+                        self.metrics[t]
+                    )
+                    if response is not None:
+                        self.emit_utilization(*response,
+                                              metric="cpu.utilization",
+                                              obj=(t, self.metrics[t]))
                     del (self.metrics[t])
                 else:
-                    self.metrics[t].skipped = True
+                    # skip em once to give metrics time to arrive
+                    if self.metrics[t].skipped:
+                        debug("incomplete metric %s %s" % (t, self.metrics[t]))
+                        del (self.metrics[t])
+                    else:
+                        self.metrics[t].skipped = True
+            else:
+                debug("too old %s %s" % (t, self.metrics[t].keys()))
+                del (self.metrics[t])
 
 
 class Total(PluginInstanceUtilization):
@@ -509,44 +528,48 @@ class Total(PluginInstanceUtilization):
             return
 
         for t in sorted(self.metrics.keys()):
-            m = self.metrics[t]
-            if m.skipped or len(m) >= self.size:
-                if len(m) > self.size:
-                    self.size = len(m)
-                prev = copy.copy(self.previous)
-                current = {}
-                for x, y in m.iteritems():
-                    current[x] = sum(y[self.total_type])
-                diff = {}
-                for k in current:
-                    if k in prev:
-                        v = current[k] - prev[k]
-                        if v < 0:
-                            if t < self.last_time:
-                                debug(
-                                    "older metric, don't show wrapping t %s "
-                                    "last %s" % (t, self.last_time))
-                                del (self.metrics[t])
-                                continue
-                            debug("we've wrapped %s prev %s current %s" %
-                                  (k, prev[k], current[k]))
-                            v = current[k]
-                        del (prev[k])
-                    else:
-                        v = 0
-                    diff[k] = v
+            if t > self.last_time:
+                m = self.metrics[t]
+                if m.skipped or len(m) >= self.size:
+                    if len(m) > self.size:
+                        self.size = len(m)
+                    prev = copy.copy(self.previous)
+                    current = {}
+                    for x, y in m.iteritems():
+                        current[x] = sum(y[self.total_type])
+                    diff = {}
+                    for k in current:
+                        if k in prev:
+                            v = current[k] - prev[k]
+                            if v < 0:
+                                if t <= self.last_time:
+                                    debug(
+                                        "older metric, don't show wrapping t "
+                                        "%s last %s" % (t, self.last_time))
+                                    del (self.metrics[t])
+                                    continue
+                                debug("we've wrapped %s prev %s current %s" %
+                                      (k, prev[k], current[k]))
+                                v = current[k]
+                            del (prev[k])
+                        else:
+                            v = 0
+                        diff[k] = v
 
-                # we don't need to look at the ones that aren't showing up
-                # we have their last diff in the total, and if they ever
-                # register again we'll record that diff
+                    # we don't need to look at the ones that aren't showing up
+                    # we have their last diff in the total, and if they ever
+                    # register again we'll record that diff
 
-                for k in diff:
-                    self.totals[k] = self.totals.setdefault(k, 0) + diff[k]
-                    self.previous[k] = current[k]
-                self.emit_total(self.metric_name, t)
-                del (self.metrics[t])
+                    for k in diff:
+                        self.totals[k] = self.totals.setdefault(k, 0) + diff[k]
+                        self.previous[k] = current[k]
+                    self.emit_total(self.metric_name, t)
+                    del (self.metrics[t])
+                else:
+                    m.skipped = True
             else:
-                m.skipped = True
+                debug("too old %s %s" % (t, self.metrics[t].keys()))
+                del (self.metrics[t])
 
 
 class DfTotalUtilization(Total):
@@ -577,62 +600,67 @@ class DfTotalUtilization(Total):
             return
 
         for t in sorted(self.metrics.keys()):
-            used_total = 0
-            free_total = 0
-            pm = self.metrics[t]
-            delete = True
-            emit = True
-            current = set(pm.keys())
-            if current >= self.current_plugin_instances:
-                if current > self.current_plugin_instances:
-                    self.size = len(pm)
-                    diff = set(pm.keys()) - self.current_plugin_instances
-                    debug("updating current_plugin_instances with diff %s"
-                          % diff)
-                    self.current_plugin_instances = set(pm.keys())
-                for plugin_instance in self.current_plugin_instances:
-                    m = self.metrics[t][plugin_instance]
-                    if len(m) == 3:
-                        used_total += m["df_complex.used"][0]
-                        free_total += m["df_complex.free"][0]
-                    else:
-                        emit = False
-                        # skip em once to give metrics time to arrive
-                        if pm.skipped:
-                            debug("incomplete metric %s %s %s" %
-                                  (plugin_instance, t, pm))
-                            break
+            if t > self.last_time:
+                used_total = 0
+                free_total = 0
+                pm = self.metrics[t]
+                delete = True
+                emit = True
+                current = set(pm.keys())
+                if current >= self.current_plugin_instances:
+                    if current > self.current_plugin_instances:
+                        self.size = len(pm)
+                        diff = set(pm.keys()) - self.current_plugin_instances
+                        debug("updating current_plugin_instances with diff %s"
+                              % diff)
+                        self.current_plugin_instances = set(pm.keys())
+                    for plugin_instance in self.current_plugin_instances:
+                        m = self.metrics[t][plugin_instance]
+                        if len(m) == 3:
+                            used_total += m["df_complex.used"][0]
+                            free_total += m["df_complex.free"][0]
                         else:
-                            pm.skipped = True
-                            delete = False
-            else:
-                emit = False
-                if pm.skipped:
-                    debug("incomplete metric %s %s" %
-                          (t, pm))
-                    skipped_plugin_instances = set(pm.keys())
-                    difference = self.current_plugin_instances.difference(
-                        skipped_plugin_instances)
-                    for d in difference:
-                        if d in self.probation_plugin_instances:
-                            self.current_plugin_instances.remove(d)
-                            self.size = len(self.current_plugin_instances)
-                            debug(
-                                "probate plugin_instance removed %s size now "
-                                "%s" % (d, self.size))
-                            self.probation_plugin_instances.remove(d)
-                        else:
-                            debug("setting probate plugin_instance %s" % d)
-                            self.probation_plugin_instances.add(d)
-
+                            emit = False
+                            # skip em once to give metrics time to arrive
+                            if pm.skipped:
+                                debug("incomplete metric %s %s %s" %
+                                      (plugin_instance, t, pm))
+                                break
+                            else:
+                                pm.skipped = True
+                                delete = False
                 else:
-                    pm.skipped = True
-                    delete = False
+                    emit = False
+                    if pm.skipped:
+                        debug("incomplete metric %s %s" %
+                              (t, pm))
+                        skipped_plugin_instances = set(pm.keys())
+                        difference = self.current_plugin_instances.difference(
+                            skipped_plugin_instances)
+                        for d in difference:
+                            if d in self.probation_plugin_instances:
+                                self.current_plugin_instances.remove(d)
+                                self.size = len(self.current_plugin_instances)
+                                debug(
+                                    "probate plugin_instance removed %s size "
+                                    "now %s" % (d, self.size))
+                                self.probation_plugin_instances.remove(d)
+                            else:
+                                debug("setting probate plugin_instance %s" % d)
+                                self.probation_plugin_instances.add(d)
 
-            if emit:
-                self.emit_utilization(t, used_total, used_total + free_total,
-                                      "disk.summary_utilization", obj=pm)
-            if delete:
+                    else:
+                        pm.skipped = True
+                        delete = False
+
+                if emit:
+                    self.emit_utilization(t, used_total,
+                                          used_total + free_total,
+                                          "disk.summary_utilization", obj=pm)
+                if delete:
+                    del (self.metrics[t])
+            else:
+                debug("too old %s %s" % (t, self.metrics[t].keys()))
                 del (self.metrics[t])
 
 
