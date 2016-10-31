@@ -1,3 +1,4 @@
 psutil>=3.2.2
 signalfx>=1.0.7
 simplejson>=3.8.1
+six>=1.10.0
