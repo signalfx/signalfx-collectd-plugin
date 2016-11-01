@@ -1,5 +1,9 @@
-0.0.28 / 2016-10-18
+0.0.29 / 2016-11-02
 ===================
+
+* Added python dependency six
+
+0.0.28 / 2016-10-18
 
 * Upgrade to latest signalfx-python v1.0.7
 * Log outdated metrics instead of emitting them
