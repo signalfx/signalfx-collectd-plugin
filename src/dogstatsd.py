@@ -186,7 +186,9 @@ class Server(object):
 
 
 
-def init(server_host, port, timeout=UDP_SOCKET_TIMEOUT, aggregator_interval=DOGSTATSD_AGGREGATOR_BUCKET_SIZE):
+def init(server_host, port, timeout=UDP_SOCKET_TIMEOUT,
+        aggregator_interval=DOGSTATSD_AGGREGATOR_BUCKET_SIZE,
+        histogram_percentiles=DEFAULT_HISTOGRAM_PERCENTILES):
     """Configure the server and the reporting thread.
     """
 
@@ -200,7 +202,7 @@ def init(server_host, port, timeout=UDP_SOCKET_TIMEOUT, aggregator_interval=DOGS
         recent_point_threshold=None,
         formatter=None,
         histogram_aggregates=DEFAULT_HISTOGRAM_AGGREGATES,
-        histogram_percentiles=DEFAULT_HISTOGRAM_PERCENTILES,
+        histogram_percentiles=histogram_percentiles,
         utf8_decoding=True,
     )
 
