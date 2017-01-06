@@ -1,7 +1,6 @@
 import threading
 import time
 
-import aggregator
 import dogstatsd
 
 PLUGIN_NAME = "dogstatsd"
@@ -54,7 +53,6 @@ class DogstatsDConfig(object):
         self.listen_ip = DEFAULT_IP
         self.max_recv_size = MAX_RECV_SIZE
         self.aggregator_interval = dogstatsd.DOGSTATSD_AGGREGATOR_BUCKET_SIZE
-        self.histogram_percentiles = aggregator.DEFAULT_HISTOGRAM_PERCENTILES
         self.read_to_collectd = False
         self.ingest_endpoint = INGEST_URL
         self.api_token = ""
@@ -66,8 +64,6 @@ class DogstatsDConfig(object):
         for node in conf.children:
             if node.key == "DogStatsDPort":
                 self.listen_port = int(node.values[0])
-            elif node.key == "HistogramPercentiles":
-                self.histogram_percentiles = floats(node.values[0])
             elif node.key == "IP":
                 self.listen_ip = node.values[0]
             elif node.key == "Verbose":
@@ -84,10 +80,6 @@ class DogstatsDConfig(object):
                 self.api_token = node.values[0]
             elif node.key == "collectdsend":
                 self.collectd_send = bool(node.values[0])
-
-
-def floats(string):
-    return [float(v) for v in v.split(',')]
 
 
 def filter_signalfx_dimension(dogstatsddim):
@@ -243,8 +235,7 @@ class DogstatsDCollectD(object):
         self.server = dogstatsd.init(
             self.config.listen_ip, self.config.listen_port,
             timeout=self.config.udp_timeout,
-            aggregator_interval=self.config.aggregator_interval,
-            histogram_percentiles=self.histogram_percentiles)
+            aggregator_interval=self.config.aggregator_interval)
         udp_server_thread = threading.Thread(target=self.server.start)
         udp_server_thread.daemon = True
         udp_server_thread.start()
