@@ -244,7 +244,7 @@ class DogstatsDCollectD(object):
             self.config.listen_ip, self.config.listen_port,
             timeout=self.config.udp_timeout,
             aggregator_interval=self.config.aggregator_interval,
-            histogram_percentiles=self.histogram_percentiles)
+            histogram_percentiles=self.config.histogram_percentiles)
         udp_server_thread = threading.Thread(target=self.server.start)
         udp_server_thread.daemon = True
         udp_server_thread.start()
