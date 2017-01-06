@@ -1,9 +1,5 @@
-0.0.30 / 2017-01-03
-===================
-
-* Add module key `HistogramPercentiles` for configuring histogram percentiles
-
 0.0.29 / 2016-11-02
+===================
 
 * Added python dependency six
 
