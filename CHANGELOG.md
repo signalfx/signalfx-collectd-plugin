@@ -1,5 +1,10 @@
-0.0.29 / 2016-11-02
+0.0.30 / 2017-03-25
 ===================
+
+* Fix memory leak related to cpu utilization metrics collection
+* Upgrade to latest signalfx-python v1.0.16
+
+0.0.29 / 2016-11-02
 
 * Added python dependency six
 

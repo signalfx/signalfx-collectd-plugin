@@ -64,7 +64,7 @@ API_TOKENS = []
 TIMEOUT = 3
 POST_URLS = []
 DEFAULT_POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.29"
+VERSION = "0.0.30"
 MAX_LENGTH = 0
 COLLECTD_VERSION = ""
 LINUX_VERSION = ""
@@ -414,6 +414,8 @@ class CpuUtilizationPerCore(PluginInstanceUtilization):
                 else:
                     debug("too old %s %s" % (t, self.metrics[t].keys()))
                     del (self.metrics[t])
+        else:
+            self.metrics = {}
 
 
 class CpuUtilization(Utilization):
