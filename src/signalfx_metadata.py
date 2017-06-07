@@ -1108,10 +1108,12 @@ def set_aws_url(host_info):
             AWS_SET = True
 
 
-def popen(command):
+def popen(command, include_stderr=False):
     """ using subprocess instead of check_output for 2.6 comparability """
-    output = subprocess.Popen(command, stdout=subprocess.PIPE).communicate()[0]
-    return output.strip()
+    out, err = subprocess.Popen(command,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE).communicate()
+    return out.strip() + err.strip() if include_stderr else out.strip()
 
 
 def get_collectd_version():
@@ -1129,12 +1131,15 @@ def get_collectd_version():
         if sys.platform == 'darwin':
             output = popen(["/usr/local/sbin/collectd", "-h"])
         else:
-            output = popen(["/proc/self/exe", "-h"])
+            output = popen(["/proc/self/exe", "-h"], include_stderr=True)
 
-        regexed = re.search("collectd (.*), http://collectd.org/",
-                            output.decode())
-        if regexed:
-            COLLECTD_VERSION = regexed.groups()[0]
+        for r in ["collectd (.*), http://collectd.org/",
+                  # New agent output is different
+                  r"collectd-version: ([^,]+),"]:
+            regexed = re.search(r, output.decode())
+            if regexed:
+                COLLECTD_VERSION = regexed.groups()[0]
+                break
     except Exception:
         t, e = sys.exc_info()[:2]
         log("trying to parse collectd version failed %s" % e)
@@ -1556,8 +1561,7 @@ def receive_notifications(notif):
         start = time.time()
         try:
             req = urllib2.Request(post_url, data, headers)
-            r = urllib2.urlopen(req, timeout=TIMEOUT)
-            sys.stdout.write(string.strip(r.read()))
+            urllib2.urlopen(req, timeout=TIMEOUT)
         except Exception:
             t, e = sys.exc_info()[:2]
             sys.stdout.write(str(e))
