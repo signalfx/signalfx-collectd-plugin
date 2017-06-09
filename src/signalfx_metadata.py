@@ -843,6 +843,9 @@ def plugin_config(conf):
                 NOTIFY_LEVEL = 2
             elif string.lower(kv.values[0]) == "failure":
                 NOTIFY_LEVEL = 1
+        elif kv.key == 'ProcPath':
+            psutil.PROCFS_PATH = kv.values[0]
+            debug("Setting proc path to %s for psutil" % psutil.PROCFS_PATH)
 
     if not POST_URLS:
         POST_URLS = [DEFAULT_POST_URL]
@@ -923,10 +926,11 @@ def send():
         if len(NEXT_METADATA_SEND_INTERVAL) > 1:
             NEXT_METADATA_SEND = \
                 time.time() + NEXT_METADATA_SEND_INTERVAL.pop(0)
-            log("till next metadata %s seconds" % str(
-                NEXT_METADATA_SEND - time.time()))
         else:
             NEXT_METADATA_SEND = time.time() + NEXT_METADATA_SEND_INTERVAL[0]
+
+        log("till next metadata %s seconds"
+            % str(NEXT_METADATA_SEND - time.time()))
 
     global LAST
     LAST = time.time()
@@ -1229,7 +1233,7 @@ def to_time(secs):
 
 
 def read_proc_file(pid, file, field=None):
-    with open("/proc/%s/%s" % (pid, file)) as f:
+    with open(os.path.join(psutil.PROCFS_PATH, pid, file)) as f:
         if not field:
             return f.read().strip()
         for x in f.readlines():
@@ -1286,11 +1290,12 @@ def send_top():
     top = {}
     for p in psutil.process_iter():
         try:
-            cpu_nice_value = p.nice()
             command_value = p.name()
             if sys.platform != 'darwin':
                 cpu_nice_value = get_nice(p)
                 command_value = get_command(p)
+            else:
+                cpu_nice_value = p.nice()
 
             top[p.pid] = [
                 p.username(),  # user
