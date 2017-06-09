@@ -1233,7 +1233,7 @@ def to_time(secs):
 
 
 def read_proc_file(pid, file, field=None):
-    with open("%s/%s/%s" % (psutil.PROCFS_PATH, pid, file)) as f:
+    with open(os.path.join(psutil.PROCFS_PATH, pid, file)) as f:
         if not field:
             return f.read().strip()
         for x in f.readlines():
