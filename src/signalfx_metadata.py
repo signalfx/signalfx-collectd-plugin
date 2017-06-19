@@ -64,7 +64,7 @@ API_TOKENS = []
 TIMEOUT = 3
 POST_URLS = []
 DEFAULT_POST_URL = "https://ingest.signalfx.com/v1/collectd"
-VERSION = "0.0.31"
+VERSION = "0.0.32"
 MAX_LENGTH = 0
 COLLECTD_VERSION = ""
 LINUX_VERSION = ""
@@ -1024,7 +1024,7 @@ def get_cpu_info(host_info={}):
                 break
 
     else:
-        with open("/proc/cpuinfo") as f:
+        with open(os.path.join(psutil.PROCFS_PATH, "cpuinfo")) as f:
             nb_cpu = 0
             nb_cores = 0
             nb_units = 0
@@ -1241,7 +1241,7 @@ def to_time(secs):
 
 
 def read_proc_file(pid, file, field=None):
-    with open(os.path.join(psutil.PROCFS_PATH, pid, file)) as f:
+    with open(os.path.join(psutil.PROCFS_PATH, str(pid), file)) as f:
         if not field:
             return f.read().strip()
         for x in f.readlines():
@@ -1338,7 +1338,7 @@ def get_memory(host_info):
             str(int(popen(["sysctl", "-n", "hw.memsize"])) / 1024)
     else:
         """get total physical memory for machine"""
-        with open("/proc/meminfo") as f:
+        with open(os.path.join(psutil.PROCFS_PATH, "meminfo")) as f:
             pieces = f.readline()
             _, mem_total, _ = pieces.split()
             host_info["host_mem_total"] = mem_total
