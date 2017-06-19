@@ -1,5 +1,9 @@
-0.0.31 / 2017-06-19
+0.0.32 / 2017-06-19
 ===================
+
+* Fix issue preventing host process info from being reported.
+
+0.0.31 / 2017-06-19
 
 * Configure alternate proc path
 * Configure alternate etc path
