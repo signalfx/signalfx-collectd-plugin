@@ -96,6 +96,7 @@ RESPONSE_ERRORS = 0
 DOGSTATSD_INSTANCE = collectd_dogstatsd.DogstatsDCollectD(collectd)
 PERCORECPUUTIL = False
 OVERALLCPUUTIL = True
+ETC_PATH = "/etc"
 
 
 class mdict(dict):
@@ -846,6 +847,10 @@ def plugin_config(conf):
         elif kv.key == 'ProcPath':
             psutil.PROCFS_PATH = kv.values[0]
             debug("Setting proc path to %s for psutil" % psutil.PROCFS_PATH)
+        elif kv.key == 'EtcPath':
+            ETC_PATH = kv.values[0].rstrip("/")
+            debug("Setting etc path to %s for os release detection"
+                  % ETC_PATH)
 
     if not POST_URLS:
         POST_URLS = [DEFAULT_POST_URL]
@@ -1152,8 +1157,9 @@ def get_collectd_version():
 
 
 def getLsbRelease():
-    if os.path.isfile("/etc/lsb-release"):
-        with open("/etc/lsb-release") as f:
+    path = ("{0}/lsb-release").format(ETC_PATH)
+    if os.path.isfile(path):
+        with open(path) as f:
             for line in f.readlines():
                 regexed = re.search('DISTRIB_DESCRIPTION="(.*)"', line)
                 if regexed:
@@ -1161,8 +1167,9 @@ def getLsbRelease():
 
 
 def getOsRelease():
-    if os.path.isfile("/etc/os-release"):
-        with open("/etc/os-release") as f:
+    path = ("{0}/os-release").format(ETC_PATH)
+    if os.path.isfile(path):
+        with open(path) as f:
             for line in f.readlines():
                 regexed = re.search('PRETTY_NAME="(.*)"', line)
                 if regexed:
@@ -1170,8 +1177,9 @@ def getOsRelease():
 
 
 def getCentos():
-    for file in ["/etc/centos-release", "/etc/redhat-release",
-                 "/etc/system-release"]:
+    for file in ["{0}/centos-release".format(ETC_PATH),
+                 "{0}/redhat-release".format(ETC_PATH),
+                 "{0}/system-release".format(ETC_PATH)]:
         if os.path.isfile(file):
             with open(file) as f:
                 line = f.read()
