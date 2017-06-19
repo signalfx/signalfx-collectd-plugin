@@ -96,7 +96,7 @@ RESPONSE_ERRORS = 0
 DOGSTATSD_INSTANCE = collectd_dogstatsd.DogstatsDCollectD(collectd)
 PERCORECPUUTIL = False
 OVERALLCPUUTIL = True
-ETC_PATH = "/etc"
+ETC_PATH = "{0}etc".format(os.sep)
 
 
 class mdict(dict):
@@ -848,7 +848,7 @@ def plugin_config(conf):
             psutil.PROCFS_PATH = kv.values[0]
             debug("Setting proc path to %s for psutil" % psutil.PROCFS_PATH)
         elif kv.key == 'EtcPath':
-            ETC_PATH = kv.values[0].rstrip("/")
+            ETC_PATH = kv.values[0].rstrip(os.pathsep).rstrip(os.sep)
             debug("Setting etc path to %s for os release detection"
                   % ETC_PATH)
 
@@ -1157,7 +1157,7 @@ def get_collectd_version():
 
 
 def getLsbRelease():
-    path = ("{0}/lsb-release").format(ETC_PATH)
+    path = os.path.join(ETC_PATH, "lsb-release")
     if os.path.isfile(path):
         with open(path) as f:
             for line in f.readlines():
@@ -1167,7 +1167,7 @@ def getLsbRelease():
 
 
 def getOsRelease():
-    path = ("{0}/os-release").format(ETC_PATH)
+    path = os.path.join(ETC_PATH, "os-release")
     if os.path.isfile(path):
         with open(path) as f:
             for line in f.readlines():
@@ -1177,9 +1177,9 @@ def getOsRelease():
 
 
 def getCentos():
-    for file in ["{0}/centos-release".format(ETC_PATH),
-                 "{0}/redhat-release".format(ETC_PATH),
-                 "{0}/system-release".format(ETC_PATH)]:
+    for file in [os.path.join(ETC_PATH, "centos-release"),
+                 os.path.join(ETC_PATH, "redhat-release"),
+                 os.path.join(ETC_PATH, "system-release")]:
         if os.path.isfile(file):
             with open(file) as f:
                 line = f.read()
