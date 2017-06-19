@@ -49,6 +49,10 @@ For metadata:
   each processor?  Default is false
 * Datapoints: would you like the plugin to send in metrics about max round
   trip time, plugin uptime and notification sending errors?  Default is true.
+* ProcPath: specify an alternate `proc` path to parse for process information.
+  Default is `/proc`.
+* EtcPath: specify an alternate `etc` path to parse for os release information.
+  Default is `/etc`.
 
 For DogstatsD support:
 

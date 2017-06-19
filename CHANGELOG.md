@@ -1,5 +1,11 @@
-0.0.30 / 2017-03-25
+0.0.31 / 2017-06-23
 ===================
+
+* Configure alternate proc path
+* Configure alternate etc path
+* Fix logging of "Next Metadata Send" message
+
+0.0.30 / 2017-03-25
 
 * Fix memory leak related to cpu utilization metrics collection
 * Upgrade to latest signalfx-python v1.0.16
