@@ -97,6 +97,8 @@ DOGSTATSD_INSTANCE = collectd_dogstatsd.DogstatsDCollectD(collectd)
 PERCORECPUUTIL = False
 OVERALLCPUUTIL = True
 ETC_PATH = "{0}etc".format(os.sep)
+PERSISTENCE_PATH = None
+PERSISTENCE_FILE = "persist_sfx_metadata_state.js"
 
 
 class mdict(dict):
@@ -848,9 +850,14 @@ def plugin_config(conf):
             psutil.PROCFS_PATH = kv.values[0]
             debug("Setting proc path to %s for psutil" % psutil.PROCFS_PATH)
         elif kv.key == 'EtcPath':
+            global ETC_PATH
             ETC_PATH = kv.values[0].rstrip(os.pathsep).rstrip(os.sep)
             debug("Setting etc path to %s for os release detection"
                   % ETC_PATH)
+        elif kv.key == 'PersistencePath':
+            global PERSISTENCE_PATH
+            PERSISTENCE_PATH = kv.values[0]
+            load_persistent_data()
 
     if not POST_URLS:
         POST_URLS = [DEFAULT_POST_URL]
@@ -881,6 +888,39 @@ def plugin_config(conf):
 
     collectd.register_read(send, INTERVAL)
     get_aws_info()
+
+
+def load_persistent_data():
+    """Load persistent data from a specified path"""
+    try:
+        with open(os.path.join(PERSISTENCE_PATH, PERSISTENCE_FILE), 'r') as js:
+            persist = json.load(js)
+            debug("Loaded the following persistent data %s" % persist)
+            if "NEXT_METADATA_SEND" in persist:
+                global NEXT_METADATA_SEND
+                NEXT_METADATA_SEND = persist["NEXT_METADATA_SEND"]
+            if "NEXT_METADATA_SEND_INTERVAL" in persist:
+                global NEXT_METADATA_SEND_INTERVAL
+                NEXT_METADATA_SEND_INTERVAL = \
+                    persist["NEXT_METADATA_SEND_INTERVAL"]
+
+    except Exception as e:
+        debug("Unable to load persistence data %s" % e)
+
+
+def save_persistent_data():
+    """Persist data about the metadata plugin to a file"""
+    if PERSISTENCE_PATH:
+        try:
+            with open(os.path.join(PERSISTENCE_PATH,
+                                   PERSISTENCE_FILE), 'w') as f:
+                persist = {
+                    'NEXT_METADATA_SEND': NEXT_METADATA_SEND,
+                    'NEXT_METADATA_SEND_INTERVAL': NEXT_METADATA_SEND_INTERVAL
+                }
+                json.dump(persist, f)
+        except Exception as e:
+            debug("Unable to save persistent data: %s" % e)
 
 
 def compact(thing):
@@ -923,9 +963,9 @@ def send():
     if NEXT_METADATA_SEND == 0:
         dither = NEXT_METADATA_SEND_INTERVAL.pop(0)
         NEXT_METADATA_SEND = time.time() + dither
-        log(
-            "adding small dither of %s seconds before sending notifications"
+        log("adding small dither of %s seconds before sending notifications"
             % dither)
+        save_persistent_data()
     if NEXT_METADATA_SEND < time.time():
         send_notifications()
         if len(NEXT_METADATA_SEND_INTERVAL) > 1:
@@ -936,6 +976,7 @@ def send():
 
         log("till next metadata %s seconds"
             % str(NEXT_METADATA_SEND - time.time()))
+        save_persistent_data()
 
     global LAST
     LAST = time.time()
