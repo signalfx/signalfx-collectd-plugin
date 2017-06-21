@@ -80,6 +80,7 @@ def DEFAULT_NEXT_METADATA_SEND():
 
 
 NEXT_METADATA_SEND = DEFAULT_NEXT_METADATA_SEND()
+NEXT_METADATA_SEND_KEY = "NEXT_METADATA_SEND"
 
 
 def DEFAULT_NEXT_METADATA_SEND_INTERVAL():
@@ -90,6 +91,7 @@ def DEFAULT_NEXT_METADATA_SEND_INTERVAL():
 
 
 NEXT_METADATA_SEND_INTERVAL = DEFAULT_NEXT_METADATA_SEND_INTERVAL()
+NEXT_METADATA_SEND_INTERVAL_KEY = "NEXT_METADATA_SEND_INTERVAL"
 LAST = 0
 AWS = False
 AWS_SET = False
@@ -112,6 +114,7 @@ PERCORECPUUTIL = False
 OVERALLCPUUTIL = True
 ETC_PATH = "{0}etc".format(os.sep)
 SAVED_HOST = None
+SAVED_HOST_KEY = "SAVED_HOST"
 PERSISTENCE_PATH = None
 PERSISTENCE_FILE = "sfx_metadata_state.json"
 
@@ -911,16 +914,16 @@ def load_persistent_data():
         with open(os.path.join(PERSISTENCE_PATH, PERSISTENCE_FILE), 'r') as js:
             persist = json.load(js)
             debug("Loaded the following persistent data %s" % persist)
-            if "SAVED_HOST" in persist:
+            if SAVED_HOST_KEY in persist:
                 global SAVED_HOST
-                SAVED_HOST = persist["SAVED_HOST"]
-            if "NEXT_METADATA_SEND" in persist:
+                SAVED_HOST = persist[SAVED_HOST_KEY]
+            if NEXT_METADATA_SEND_KEY in persist:
                 global NEXT_METADATA_SEND
-                NEXT_METADATA_SEND = persist["NEXT_METADATA_SEND"]
-            if "NEXT_METADATA_SEND_INTERVAL" in persist:
+                NEXT_METADATA_SEND = persist[NEXT_METADATA_SEND_KEY]
+            if NEXT_METADATA_SEND_INTERVAL_KEY in persist:
                 global NEXT_METADATA_SEND_INTERVAL
                 NEXT_METADATA_SEND_INTERVAL = \
-                    persist["NEXT_METADATA_SEND_INTERVAL"]
+                    persist[NEXT_METADATA_SEND_INTERVAL_KEY]
 
     except Exception as e:
         debug("Unable to load persistence data %s" % e)
@@ -933,9 +936,10 @@ def save_persistent_data():
             with open(os.path.join(PERSISTENCE_PATH,
                                    PERSISTENCE_FILE), 'w') as f:
                 persist = {
-                    'SAVED_HOST': HOST,
-                    'NEXT_METADATA_SEND': NEXT_METADATA_SEND,
-                    'NEXT_METADATA_SEND_INTERVAL': NEXT_METADATA_SEND_INTERVAL
+                    SAVED_HOST_KEY: HOST,
+                    NEXT_METADATA_SEND_KEY: NEXT_METADATA_SEND,
+                    NEXT_METADATA_SEND_INTERVAL_KEY:
+                        NEXT_METADATA_SEND_INTERVAL
                 }
                 json.dump(persist, f)
         except Exception as e:
