@@ -72,10 +72,24 @@ NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
 TYPE = "objects"
-NEXT_METADATA_SEND = 0
-NEXT_METADATA_SEND_INTERVAL = [random.randint(0, 60), 60,
-                               3600 + random.randint(0, 60),
-                               86400 + random.randint(0, 600)]
+
+
+def DEFAULT_NEXT_METADATA_SEND():
+    """returns the default next metadata send"""
+    return 0
+
+
+NEXT_METADATA_SEND = DEFAULT_NEXT_METADATA_SEND()
+
+
+def DEFAULT_NEXT_METADATA_SEND_INTERVAL():
+    """returns the default next metadata send intervals"""
+    return [random.randint(0, 60), 60,
+            3600 + random.randint(0, 60),
+            86400 + random.randint(0, 600)]
+
+
+NEXT_METADATA_SEND_INTERVAL = DEFAULT_NEXT_METADATA_SEND_INTERVAL()
 LAST = 0
 AWS = False
 AWS_SET = False
@@ -97,8 +111,9 @@ DOGSTATSD_INSTANCE = collectd_dogstatsd.DogstatsDCollectD(collectd)
 PERCORECPUUTIL = False
 OVERALLCPUUTIL = True
 ETC_PATH = "{0}etc".format(os.sep)
+SAVED_HOST = None
 PERSISTENCE_PATH = None
-PERSISTENCE_FILE = "persist_sfx_metadata_state.js"
+PERSISTENCE_FILE = "sfx_metadata_state.json"
 
 
 class mdict(dict):
@@ -896,6 +911,9 @@ def load_persistent_data():
         with open(os.path.join(PERSISTENCE_PATH, PERSISTENCE_FILE), 'r') as js:
             persist = json.load(js)
             debug("Loaded the following persistent data %s" % persist)
+            if "SAVED_HOST" in persist:
+                global SAVED_HOST
+                SAVED_HOST = persist["SAVED_HOST"]
             if "NEXT_METADATA_SEND" in persist:
                 global NEXT_METADATA_SEND
                 NEXT_METADATA_SEND = persist["NEXT_METADATA_SEND"]
@@ -915,6 +933,7 @@ def save_persistent_data():
             with open(os.path.join(PERSISTENCE_PATH,
                                    PERSISTENCE_FILE), 'w') as f:
                 persist = {
+                    'SAVED_HOST': HOST,
                     'NEXT_METADATA_SEND': NEXT_METADATA_SEND,
                     'NEXT_METADATA_SEND_INTERVAL': NEXT_METADATA_SEND_INTERVAL
                 }
@@ -980,6 +999,15 @@ def send():
 
     global LAST
     LAST = time.time()
+
+
+def reset_metadata_send():
+    """Reset the next metadata send and the metadata send intervals"""
+    debug("Resetting the next metadata send time and metadata send intervals.")
+    global NEXT_METADATA_SEND
+    NEXT_METADATA_SEND = DEFAULT_NEXT_METADATA_SEND()
+    global NEXT_METADATA_SEND_INTERVAL
+    NEXT_METADATA_SEND_INTERVAL = DEFAULT_NEXT_METADATA_SEND_INTERVAL()
 
 
 def all_interfaces():
@@ -1563,8 +1591,16 @@ def steal_host_from_notifications(notif):
     # "host" from collectd.conf steal it from notifications we've put on the
     # bus so we can use it for our own
     global HOST
+    global SAVED_HOST
     if not HOST and notif.host:
         HOST = notif.host
+        # if host is identified and it's different from the saved_host,
+        # reset the metadata send interval and next metadata send time
+        if SAVED_HOST and SAVED_HOST != HOST:
+            debug(("The saved hostname '{0}' does not match the current "
+                   "hostname '{1}'.").format(SAVED_HOST, HOST))
+            reset_metadata_send()
+            SAVED_HOST = HOST
         DOGSTATSD_INSTANCE.set_host(notif.host)
         log("found host " + HOST)
 
