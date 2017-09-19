@@ -67,6 +67,7 @@ DEFAULT_POST_URL = "https://ingest.signalfx.com/v1/collectd"
 VERSION = "0.0.32"
 MAX_LENGTH = 0
 COLLECTD_VERSION = ""
+SIGNALFX_AGENT_VERSION = ""
 LINUX_VERSION = ""
 NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
@@ -1228,6 +1229,22 @@ def get_collectd_version():
 
     return COLLECTD_VERSION
 
+def get_signalfx_agent_version():
+    global SIGNALFX_AGENT_VERSION
+    if SIGNALFX_AGENT_VERSION:
+        return SIGNALFX_AGENT_VERSION
+
+    SIGNALFX_AGENT_VERSION = "NOT_INSTALLED"
+    try:
+        output = popen(["/usr/bin/signalfx-agent", "-version"])
+        match = re.search(r"agent-version: ([^,]+),", output.decode())
+        if match:
+            SIGNALFX_AGENT_VERSION = match.groups()[0]
+    except Exception:
+        t, e = sys.exec_info()[:2]
+        log("Getting SignalFx Agent version failed: %s" % e)
+
+    return SIGNALFX_AGENT_VERSION
 
 def getLsbRelease():
     path = os.path.join(ETC_PATH, "lsb-release")
@@ -1429,6 +1446,7 @@ def get_host_info():
     get_interfaces(host_info)
     host_info["host_metadata_version"] = VERSION
     host_info["host_collectd_version"] = get_collectd_version()
+    host_info["host_signalfx_agent_version"] = get_signalfx_agent_version()
     host_info["host_linux_version"] = get_linux_version()
     host_info["host_kernel_release"] = platform.release()
     host_info["host_kernel_version"] = platform.version()
