@@ -1,7 +1,7 @@
-SignalFx Meta-Data Plugin
+SignalFx Metadata Plugin
 ==============================
 
-Provides meta-data about host and will send collectd notifications to SignalFx
+Provides metadata about host and will send collectd notifications to SignalFx
 if configured to do so.
 
 Example Config:
@@ -35,7 +35,7 @@ For metadata:
 * URL: where to emit notifications via json to. The example url is the default.
   Supports multiple entries.
 * Token: api token from signalfx to authenticate. No default. Required for
-  meta-data unless talking through proxy.  Supports multiple entries but
+  metadata unless talking through proxy.  Supports multiple entries but
   cardinality must equal that of URLs.
 * Interval: how often you want the sfx plugin to collect and send data.
   Default is 10.
