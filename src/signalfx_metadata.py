@@ -1229,22 +1229,18 @@ def get_collectd_version():
 
     return COLLECTD_VERSION
 
+
 def get_signalfx_agent_version():
     global SIGNALFX_AGENT_VERSION
     if SIGNALFX_AGENT_VERSION:
         return SIGNALFX_AGENT_VERSION
 
     SIGNALFX_AGENT_VERSION = "NOT_INSTALLED"
-    try:
-        output = popen(["/usr/bin/signalfx-agent", "-version"])
-        match = re.search(r"agent-version: ([^,]+),", output.decode())
-        if match:
-            SIGNALFX_AGENT_VERSION = match.groups()[0]
-    except Exception:
-        t, e = sys.exec_info()[:2]
-        log("Getting SignalFx Agent version failed: %s" % e)
+    if "SIGNALFX_AGENT_VERSION" in os.environ:
+        SIGNALFX_AGENT_VERSION = os.environ.get("SIGNALFX_AGENT_VERSION")
 
     return SIGNALFX_AGENT_VERSION
+
 
 def getLsbRelease():
     path = os.path.join(ETC_PATH, "lsb-release")
