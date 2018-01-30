@@ -1378,13 +1378,18 @@ def send_top():
             else:
                 cpu_nice_value = p.nice()
 
+            if psutil.version_info >= (4, 0, 0):
+                mem_info = p.memory_info()
+            else:
+                mem_info = p.memory_info_ex()
+
             top[p.pid] = [
                 p.username(),  # user
                 get_priority(p.pid),  # priority
                 cpu_nice_value,  # nice value, numerical
-                p.memory_info_ex()[1] / 1024,  # virtual memory size in kb
-                p.memory_info_ex()[0] / 1024,  # resident memory size in kb
-                p.memory_info_ex()[2] / 1024,  # shared memory size in kb
+                mem_info[1] / 1024,  # virtual memory size in kb
+                mem_info[0] / 1024,  # resident memory size in kb
+                mem_info[2] / 1024,  # shared memory size in kb
                 status_map.get(p.status(), "D"),  # process status
                 p.cpu_percent(),  # % cpu, float
                 p.memory_percent(),  # % mem, float
