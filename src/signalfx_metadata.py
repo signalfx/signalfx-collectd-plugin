@@ -1518,8 +1518,8 @@ def send_datapoints():
     if not DATAPOINTS:
         return
 
-    plugin_instance = "[metadata=%s,collectd=%s]" % (
-        VERSION, get_collectd_version())
+    plugin_instance = "[metadata=%s,collectd=%s,signalfx_agent=%s]" % (
+        VERSION, get_collectd_version(), get_signalfx_agent_version())
     type_instance = "%s[linux=%s,release=%s,version=%s]" % (
         PLUGIN_UPTIME, get_linux_version(), platform.release(),
         platform.version())
