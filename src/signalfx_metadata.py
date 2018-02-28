@@ -1211,18 +1211,17 @@ def get_collectd_version():
 
     COLLECTD_VERSION = "UNKNOWN"
     try:
-        if sys.platform == 'darwin':
-            output = popen(["/usr/local/sbin/collectd", "-h"])
+        if "COLLECTD_VERSION" in os.environ:
+            COLLECTD_VERSION = os.environ.get("COLLECTD_VERSION")
         else:
-            output = popen(["/proc/self/exe", "-h"], include_stderr=True)
+            if sys.platform == 'darwin':
+                output = popen(["/usr/local/sbin/collectd", "-h"])
+            else:
+                output = popen(["/proc/self/exe", "-h"], include_stderr=True)
 
-        for r in ["collectd (.*), http://collectd.org/",
-                  # New agent output is different
-                  r"collectd-version: ([^,]+),"]:
-            regexed = re.search(r, output.decode())
+            regexed = re.search("collectd (.*), http://collectd.org/", output.decode())
             if regexed:
                 COLLECTD_VERSION = regexed.groups()[0]
-                break
     except Exception:
         t, e = sys.exc_info()[:2]
         log("trying to parse collectd version failed %s" % e)
