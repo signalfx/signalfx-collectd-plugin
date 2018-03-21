@@ -479,7 +479,7 @@ class CpuUtilization(Utilization):
                 else:
                     # skip em once to give metrics time to arrive
                     if self.metrics[t].skipped:
-                        debug("incomplete metric %s %s" % (t, self.metrics[t]))
+                        log("incomplete metric %s %s" % (t, self.metrics[t]))
                         del (self.metrics[t])
                     else:
                         self.metrics[t].skipped = True
