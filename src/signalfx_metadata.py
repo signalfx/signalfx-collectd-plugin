@@ -1219,7 +1219,8 @@ def get_collectd_version():
             else:
                 output = popen(["/proc/self/exe", "-h"], include_stderr=True)
 
-            regexed = re.search("collectd (.*), http://collectd.org/", output.decode())
+            regexed = re.search("collectd (.*), http://collectd.org/",
+                                output.decode())
             if regexed:
                 COLLECTD_VERSION = regexed.groups()[0]
     except Exception:
