@@ -53,7 +53,6 @@ class DogstatsDConfig(object):
         self.listen_ip = DEFAULT_IP
         self.max_recv_size = MAX_RECV_SIZE
         self.aggregator_interval = dogstatsd.DOGSTATSD_AGGREGATOR_BUCKET_SIZE
-        self.read_to_collectd = False
         self.ingest_endpoint = INGEST_URL
         self.api_token = ""
         self.log = log
@@ -72,8 +71,6 @@ class DogstatsDConfig(object):
                 self.max_recv_size = int(node.values[0])
             elif node.key == "Interval":
                 self.aggregator_interval = int(node.values[0])
-            elif node.key == "ReadToCollectd":
-                self.read_to_collectd = bool(node.values[0])
             elif node.key == "IngestEndpoint":
                 self.ingest_endpoint = node.values[0]
             elif node.key == 'Token':
@@ -181,11 +178,15 @@ class CollectDPointSender(object):
 
             val.type_instance = metric['metric']
             val.plugin_instance = combine_dims(dims_from_tags(metric['tags']))
+            parsed_time = int(metric['points'][0][0])
+            if parsed_time > 0:
+                val.time = parsed_time
             val.values = [metric['points'][0][1]]
+
             if metric['type'] == "rate":
                 val.values[0] *= self.config.aggregator_interval
 
-            self.log.verbose("m: {} v: {}", metric, val)
+            self.log.verbose("m: {0} v: {1}", metric, val)
             val.dispatch()
 
     def set_host(self, host):
