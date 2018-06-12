@@ -2,7 +2,16 @@ import threading
 import time
 
 import dogstatsd
-import collectd
+try:
+    import collectd
+    import logging
+
+    logging.basicConfig(level=logging.INFO)
+except ImportError:
+    try:
+        import dummy_collectd as collectd
+    except:
+        pass
 
 PLUGIN_NAME = "dogstatsd"
 DEFAULT_SOCKET = None
