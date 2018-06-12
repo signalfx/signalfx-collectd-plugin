@@ -2,6 +2,16 @@ import threading
 import time
 
 import dogstatsd
+try:
+    import collectd
+    import logging
+
+    logging.basicConfig(level=logging.INFO)
+except ImportError:
+    try:
+        import dummy_collectd as collectd
+    except ImportError:
+        pass
 
 PLUGIN_NAME = "dogstatsd"
 DEFAULT_SOCKET = None
@@ -90,14 +100,19 @@ def filter_signalfx_dimension(dogstatsddim):
     return ret
 
 
-def dims_from_tags(tags):
+def dims_from_tags(tags, metric):
     ret = {}
-    if tags is None:
+    if not tags:
         return ret
     for tag in tags:
         parts = tag.split(":", 1)
         if len(parts) == 0:
             # Skip labels
+            continue
+        if len(parts) == 1:
+            collectd.error(
+                "skipping malformed dogstatsd tag: '{0}' for metric: '{1}'"
+                .format(tag, metric))
             continue
         ret[parts[0]] = parts[1]
     return ret
@@ -127,31 +142,38 @@ class SignalfxPointSender(object):
         gauges = []
         counters = []
         for metric in metrics:
-            sfx_metric = {}
-            if metric['type'] in DOG_STATSD_TYPE_TO_COLLECTD_TYPE:
-                mtype = DOG_STATSD_TYPE_TO_COLLECTD_TYPE[metric['type']]
-            else:
-                mtype = 'gauge'
+            try:
+                sfx_metric = {}
+                if metric['type'] in DOG_STATSD_TYPE_TO_COLLECTD_TYPE:
+                    mtype = DOG_STATSD_TYPE_TO_COLLECTD_TYPE[metric['type']]
+                else:
+                    mtype = 'gauge'
 
-            if mtype == "absolute":
-                mtype = "counter"
+                if mtype == "absolute":
+                    mtype = "counter"
 
-            sfx_metric["metric"] = metric['metric']
-            sfx_metric["dimensions"] = dims_from_tags(metric['tags'])
-            if "host" not in sfx_metric["dimensions"]:
-                sfx_metric["dimensions"]["host"] = self.host
-            if sfx_metric["dimensions"]["host"] == "":
-                self.log.info("waiting for host dim from metadata plugin")
-                return
-            sfx_metric["timestamp"] = int(metric['points'][0][0] * 1000)
-            sfx_metric["value"] = metric['points'][0][1]
-            if metric['type'] == "rate":
-                sfx_metric["value"] *= self.config.aggregator_interval
+                sfx_metric["metric"] = metric['metric']
+                sfx_metric["dimensions"] = dims_from_tags(
+                    metric.get('tags', []), sfx_metric["metric"])
+                if "host" not in sfx_metric["dimensions"]:
+                    sfx_metric["dimensions"]["host"] = self.host
+                if sfx_metric["dimensions"]["host"] == "":
+                    self.log.info("waiting for host dim from metadata plugin")
+                    return
+                sfx_metric["timestamp"] = int(metric['points'][0][0] * 1000)
+                sfx_metric["value"] = metric['points'][0][1]
+                if metric['type'] == "rate":
+                    sfx_metric["value"] *= self.config.aggregator_interval
 
-            if mtype == "gauge":
-                gauges.append(sfx_metric)
-            elif mtype == "counter":
-                counters.append(sfx_metric)
+                if mtype == "gauge":
+                    gauges.append(sfx_metric)
+                elif mtype == "counter":
+                    counters.append(sfx_metric)
+            except (AttributeError, KeyError, ValueError) as err:
+                self.log.error(
+                    "Unable to parse dd metric {0} due to error: {1}".format(
+                        metric, err))
+
         self.log.verbose("Sending %d metrics" % len(metrics))
         self.sfx.send(gauges=gauges, counters=counters)
 
@@ -169,25 +191,31 @@ class CollectDPointSender(object):
 
     def send_points(self, metrics):
         for metric in metrics:
-            val = self.Values(plugin=self.plugin, meta={'0': True})
+            try:
+                val = self.Values(plugin=self.plugin, meta={'0': True})
 
-            if metric['type'] in DOG_STATSD_TYPE_TO_COLLECTD_TYPE:
-                val.type = DOG_STATSD_TYPE_TO_COLLECTD_TYPE[metric['type']]
-            else:
-                val.type = 'gauge'
+                if metric['type'] in DOG_STATSD_TYPE_TO_COLLECTD_TYPE:
+                    val.type = DOG_STATSD_TYPE_TO_COLLECTD_TYPE[metric['type']]
+                else:
+                    val.type = 'gauge'
 
-            val.type_instance = metric['metric']
-            val.plugin_instance = combine_dims(dims_from_tags(metric['tags']))
-            parsed_time = int(metric['points'][0][0])
-            if parsed_time > 0:
-                val.time = parsed_time
-            val.values = [metric['points'][0][1]]
+                val.type_instance = metric['metric']
+                val.plugin_instance = combine_dims(dims_from_tags(
+                    metric.get('tags', []), val.type_instance))
+                parsed_time = int(metric['points'][0][0])
+                if parsed_time > 0:
+                    val.time = parsed_time
+                val.values = [metric['points'][0][1]]
 
-            if metric['type'] == "rate":
-                val.values[0] *= self.config.aggregator_interval
+                if metric['type'] == "rate":
+                    val.values[0] *= self.config.aggregator_interval
 
-            self.log.verbose("m: {0} v: {1}", metric, val)
-            val.dispatch()
+                self.log.verbose("m: {0} v: {1}", metric, val)
+                val.dispatch()
+            except (AttributeError, KeyError, ValueError) as err:
+                self.log.error(
+                    "Unable to parse dd metric {0} due to error: {1}".format(
+                        metric, err))
 
     def set_host(self, host):
         # Host ignored.  Set by collectd
