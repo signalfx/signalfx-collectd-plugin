@@ -10,7 +10,7 @@ try:
 except ImportError:
     try:
         import dummy_collectd as collectd
-    except:
+    except ImportError:
         pass
 
 PLUGIN_NAME = "dogstatsd"
@@ -169,10 +169,10 @@ class SignalfxPointSender(object):
                     gauges.append(sfx_metric)
                 elif mtype == "counter":
                     counters.append(sfx_metric)
-            except (AttributeError, KeyError, ValueError) as e:
+            except (AttributeError, KeyError, ValueError) as err:
                 self.log.error(
-                    "Unable to parse dd metric {0} due to error: ".format(
-                        metric, e))
+                    "Unable to parse dd metric {0} due to error: {1}".format(
+                        metric, err))
 
         self.log.verbose("Sending %d metrics" % len(metrics))
         self.sfx.send(gauges=gauges, counters=counters)
@@ -212,10 +212,10 @@ class CollectDPointSender(object):
 
                 self.log.verbose("m: {0} v: {1}", metric, val)
                 val.dispatch()
-            except (AttributeError, KeyError, ValueError) as e:
+            except (AttributeError, KeyError, ValueError) as err:
                 self.log.error(
-                    "Unable to parse dd metric {0} due to error: ".format(
-                        metric, e))
+                    "Unable to parse dd metric {0} due to error: {1}".format(
+                        metric, err))
 
     def set_host(self, host):
         # Host ignored.  Set by collectd
