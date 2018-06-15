@@ -109,8 +109,8 @@ def dims_from_tags(tags, metric):
         # Skip labels
         if len(parts) == 1:
             collectd.notice((
-                "dogstatsd labels are not supported dropping label: '{0}' "
-                "on metric: '{1}'"
+                "dropping label: '{0}' on metric: '{1}' "
+                "because dogstatsd labels are not supported"
             ).format(tag, metric))
             continue
         # Skip malformed tags/label
