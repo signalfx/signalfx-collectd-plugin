@@ -107,7 +107,7 @@ def dims_from_tags(tags, metric):
     for tag in tags:
         parts = tag.split(":", 1)
         # Skip labels and malformed tags
-        if len(parts) < 2:
+        if len(parts) != 2:
             collectd.warn(
                 "dropping malformed dogstatsd tag: '{0}' for metric: '{1}'"
                 .format(tag, metric))
