@@ -106,14 +106,21 @@ def dims_from_tags(tags, metric):
         return ret
     for tag in tags:
         parts = tag.split(":", 1)
-        if len(parts) == 0:
-            # Skip labels
-            continue
+        # Skip labels
         if len(parts) == 1:
-            collectd.error(
-                "skipping malformed dogstatsd tag: '{0}' for metric: '{1}'"
-                .format(tag, metric))
+            collectd.notice((
+                "dropping label: '{0}' on metric: '{1}' "
+                "because dogstatsd labels are not supported"
+            ).format(tag, metric))
             continue
+        # Skip malformed tags/label
+        if len(parts) != 2:
+            collectd.warning((
+                "dropping malformed dogstatsd tag or label: '{0}' "
+                "on metric: '{1}'"
+            ).format(tag, metric))
+            continue
+        # Add key/value tag
         ret[parts[0]] = parts[1]
     return ret
 
