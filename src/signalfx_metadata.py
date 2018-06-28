@@ -73,6 +73,7 @@ NOTIFY_LEVEL = -1
 HOST_TYPE_INSTANCE = "host-meta-data"
 TOP_TYPE_INSTANCE = "top-info"
 TYPE = "objects"
+HOST_METADATA = True
 
 
 def DEFAULT_NEXT_METADATA_SEND():
@@ -877,6 +878,9 @@ def plugin_config(conf):
             global PERSISTENCE_PATH
             PERSISTENCE_PATH = kv.values[0]
             load_persistent_data()
+        elif kv.key == 'HostMetadata':
+            global HOST_METADATA
+            HOST_METADATA = kv.values[0]
 
     if not POST_URLS:
         POST_URLS = [DEFAULT_POST_URL]
@@ -904,6 +908,9 @@ def plugin_config(conf):
 
     if PERCORECPUUTIL is True:
         log("Cpu utilization per core has been enabled via configuration")
+
+    if HOST_METADATA:
+        restore_sigchld()
 
     collectd.register_read(send, INTERVAL)
     get_aws_info()
@@ -1564,7 +1571,8 @@ def write_notifications(host_info):
 
 
 def send_notifications():
-    host_info = get_host_info()
+    if HOST_METADATA:
+        host_info = get_host_info()
     write_notifications(host_info)
 
 
@@ -1705,8 +1713,6 @@ def restore_sigchld():
 # Note: Importing collectd_dogstatsd registers its own endpoints
 
 if __name__ != "__main__":
-    # when running inside plugin
-    collectd.register_init(restore_sigchld)
     collectd.register_config(plugin_config)
     collectd.register_shutdown(DOGSTATSD_INSTANCE.register_shutdown)
 
