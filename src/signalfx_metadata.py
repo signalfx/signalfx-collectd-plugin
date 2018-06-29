@@ -1573,7 +1573,7 @@ def write_notifications(host_info):
 def send_notifications():
     if HOST_METADATA:
         host_info = get_host_info()
-    write_notifications(host_info)
+        write_notifications(host_info)
 
 
 def get_severity(severity_int):
