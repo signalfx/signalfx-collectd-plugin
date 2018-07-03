@@ -1668,8 +1668,6 @@ def receive_notifications(notif):
     if not notif_dict["host"]:
         if HOST:
             notif_dict["host"] = HOST
-        else:
-            notif_dict["host"] = platform.node()
         log("no host info, setting to " + notif_dict["host"])
 
     notif_dict["severity"] = get_severity(notif_dict["severity"])
