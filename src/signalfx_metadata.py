@@ -986,6 +986,8 @@ def send():
 
     send_top()
 
+    if not HOST_METADATA:
+        return
     # race condition with host dimension existing
     # don't send metadata on initial iteration, but on a random interval in
     # the first six, send it then one minute later, then one hour, then one
