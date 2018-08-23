@@ -146,7 +146,7 @@ class Server(object):
                 self.address = ('127.0.0.1', self.address[1])
                 self.socket.bind(self.address)
 
-        log.info('Listening on host & port: %s' % str(self.address))
+        log.info('Listening on host & port: %s' % str(self.socket.getsockname()))
 
         # Inline variables for quick look-up.
         buffer_size = self.buffer_size
