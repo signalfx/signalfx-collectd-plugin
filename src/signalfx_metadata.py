@@ -913,6 +913,7 @@ def plugin_config(conf):
         restore_sigchld()
 
     collectd.register_read(send, INTERVAL)
+    DOGSTATSD_INSTANCE.init_callback()
     get_aws_info()
 
 
@@ -1706,8 +1707,6 @@ def restore_sigchld():
     except:
         log("executing SIGCHLD workaround")
         signal.signal(signal.SIGCHLD, signal.SIG_DFL)
-    if __name__ != "__main__":
-        DOGSTATSD_INSTANCE.init_callback()
 
 
 # Note: Importing collectd_dogstatsd registers its own endpoints
