@@ -15,7 +15,7 @@ jobs:
       - type: shell
         shell: /bin/sh
         pwd: /
-        command: apk -U add git openssh
+        command: apt-get -U add git openssh
       - type: checkout
       - type: shell
         shell: /bin/sh
