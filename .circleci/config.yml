@@ -15,7 +15,8 @@ jobs:
       - type: shell
         shell: /bin/sh
         pwd: /
-        command: apt-get -U add git openssh
+        command:  apt-get update
+        command:  apt-get -y install git openssh
       - type: checkout
       - type: shell
         shell: /bin/sh
