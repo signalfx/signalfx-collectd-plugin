@@ -918,6 +918,7 @@ class MetricsAggregator(Aggregator):
             'c': Counter,
             'h': Histogram,
             'ms': Histogram,
+            'd': Histogram,
             's': Set,
             '_dd-r': Rate,
         }
