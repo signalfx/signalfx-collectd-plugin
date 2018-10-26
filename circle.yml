@@ -9,7 +9,7 @@ dependencies:
   override:
     - pip install pep8==1.7.0 flake8==3.3.0 nose==1.3.7 pylint==1.7.1
     - pip install -r requirements.txt
-    - gem install mdl
+    - gem install mdl -v 0.5.0
 
 test:
   override:
