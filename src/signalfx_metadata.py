@@ -18,7 +18,7 @@ import sys
 import threading
 import time
 import zlib
-from urlparse import urlparse
+from urllib import parse as urlparse
 
 import psutil
 
@@ -53,13 +53,13 @@ except ImportError:
     except:
         pass
 
-if sys.platform == 'darwin':
+if sys.platform == "darwin":
     try:
         from netifaces import interfaces, ifaddresses, AF_INET
     except:
         pass
 
-PLUGIN_NAME = 'signalfx-metadata'
+PLUGIN_NAME = "signalfx-metadata"
 API_TOKENS = []
 TIMEOUT = 3
 POST_URLS = []
@@ -87,9 +87,7 @@ NEXT_METADATA_SEND_KEY = "NEXT_METADATA_SEND"
 
 def DEFAULT_NEXT_METADATA_SEND_INTERVAL():
     """returns the default next metadata send intervals"""
-    return [random.randint(0, 60), 60,
-            3600 + random.randint(0, 60),
-            86400 + random.randint(0, 600)]
+    return [random.randint(0, 60), 60, 3600 + random.randint(0, 60), 86400 + random.randint(0, 600)]
 
 
 NEXT_METADATA_SEND_INTERVAL = DEFAULT_NEXT_METADATA_SEND_INTERVAL()
@@ -177,8 +175,7 @@ class Utilization(object):
         metric_time = self.metrics.setdefault(ti, mdict())
         metric_time[metric] = values_obj.values
 
-    def emit_utilization(self, t, used, total, metric,
-                         plugin_instance="utilization", obj=None, dims=None):
+    def emit_utilization(self, t, used, total, metric, plugin_instance="utilization", obj=None, dims=None):
         """
         emit a utilization metric
 
@@ -195,21 +192,17 @@ class Utilization(object):
         else:
             percent = 1.0 * used / total * 100
         if dims is not None:
-            plugin_instance += '[{dims}]'.format(dims=','.join(['='.join(d)
-                                                 for d in dims.items()]))
+            plugin_instance += "[{dims}]".format(dims=",".join(["=".join(d) for d in dims.items()]))
         if percent < 0:
-            log("percent <= 0 %s %s %s %s %s" %
-                (used, total, metric, plugin_instance, obj))
+            log("percent <= 0 %s %s %s %s %s" % (used, total, metric, plugin_instance, obj))
             return percent
         if percent > 100:
-            log("percent > 100 %s %s %s %s %s" %
-                (used, total, metric, plugin_instance, obj))
+            log("percent > 100 %s %s %s %s %s" % (used, total, metric, plugin_instance, obj))
             return percent
         if t < self.last_time:
             debug("too old %s %s %s %s" % (t, metric, percent, self.last_time))
         else:
-            put_val(plugin_instance, "", [percent, metric], t=t,
-                    i=self.interval)
+            put_val(plugin_instance, "", [percent, metric], t=t, i=self.interval)
             self.last_time = t
             debug("%s %s %s" % (t, metric, percent))
         return percent
@@ -237,8 +230,7 @@ class PluginInstanceUtilization(Utilization):
             metric += "." + values_obj.type_instance
         ti = self.get_time(values_obj)
         metric_time = self.metrics.setdefault(ti, mdict())
-        metric_plugin_instance = metric_time.setdefault(
-            values_obj.plugin_instance, mdict())
+        metric_plugin_instance = metric_time.setdefault(values_obj.plugin_instance, mdict())
         metric_plugin_instance[metric] = values_obj.values
 
 
@@ -269,15 +261,12 @@ class DfUtilization(PluginInstanceUtilization):
                         used = m["df_complex.used"][0]
                         free = m["df_complex.free"][0]
                         total = used + free
-                        self.emit_utilization(t, used, total,
-                                              "disk.utilization",
-                                              plugin_instance, obj=m)
+                        self.emit_utilization(t, used, total, "disk.utilization", plugin_instance, obj=m)
                         del (self.metrics[t][plugin_instance])
                     else:
                         # skip em once to give metrics time to arrive
                         if m.skipped:
-                            debug("incomplete metric %s %s %s" %
-                                  (plugin_instance, t, m))
+                            debug("incomplete metric %s %s %s" % (plugin_instance, t, m))
                             del (self.metrics[t][plugin_instance])
                         else:
                             m.skipped = True
@@ -321,13 +310,12 @@ class MemoryUtilization(Utilization):
                 if len(m) == self.size:
                     total = sum(c[0] for c in m.values())
                     used = 0
-                    if sys.platform == 'darwin':
+                    if sys.platform == "darwin":
                         used = m["memory.active"][0] + m["memory.wired"][0]
                     else:
                         used = m["memory.used"][0]
 
-                    self.emit_utilization(t, used, total,
-                                          "memory.utilization", obj=m)
+                    self.emit_utilization(t, used, total, "memory.utilization", obj=m)
                 else:
                     debug("incomplete metric %s %s" % (t, self.metrics[t]))
             else:
@@ -336,8 +324,7 @@ class MemoryUtilization(Utilization):
             del (self.metrics[t])
 
 
-class CpuUtilizationCalculator():
-
+class CpuUtilizationCalculator:
     def __init__(self, core):
         self.core = core
         self.last = {}
@@ -360,8 +347,7 @@ class CpuUtilizationCalculator():
             used_diff = used - self.old_used
             total_diff = total - self.old_total
             if used_diff < 0 or total_diff < 0:
-                log("t %s used %s total %s old used %s old total %s" %
-                    (t, used, total, self.old_used, self.old_total))
+                log("t %s used %s total %s old used %s old total %s" % (t, used, total, self.old_used, self.old_total))
             elif used_diff == 0 and total_diff == 0:
                 log("zeros %s %s" % (self.last, metric))
             else:
@@ -377,12 +363,13 @@ class CpuUtilizationPerCore(PluginInstanceUtilization):
     CpuUtilization gives a 0 <=gauge <=100 of the overall utilization of each
     cpu core.
     """
+
     def __init__(self):
         PluginInstanceUtilization.__init__(self)
         self.cores = {}
 
     def is_metric(self, values_obj):
-        return (values_obj.plugin == "cpu")
+        return values_obj.plugin == "cpu"
 
     def read(self):
         """"
@@ -393,7 +380,7 @@ class CpuUtilizationPerCore(PluginInstanceUtilization):
         """
         if PERCORECPUUTIL is True:
             min_expected_metrics = 8
-            if sys.platform == 'darwin':
+            if sys.platform == "darwin":
                 min_expected_metrics = 4
             for t in sorted(self.metrics.keys()):
                 if t > self.last_time:
@@ -407,8 +394,7 @@ class CpuUtilizationPerCore(PluginInstanceUtilization):
                     if skip:
                         # skip em once to give metrics time to arrive
                         if self.metrics[t].skipped:
-                            debug("incomplete metric %s %s"
-                                  % (t, self.metrics[t]))
+                            debug("incomplete metric %s %s" % (t, self.metrics[t]))
                             del (self.metrics[t])
                         else:
                             self.metrics[t].skipped = True
@@ -418,13 +404,9 @@ class CpuUtilizationPerCore(PluginInstanceUtilization):
                         for core in self.metrics[t].keys():
                             # Add core to self.cores if necessary
                             if core not in self.cores.keys():
-                                self.cores[core] = \
-                                    CpuUtilizationCalculator(core)
+                                self.cores[core] = CpuUtilizationCalculator(core)
 
-                            response = self.cores[core].calculateUtilization(
-                                t,
-                                self.metrics[t][core]
-                            )
+                            response = self.cores[core].calculateUtilization(t, self.metrics[t][core])
 
                             if response is not None:
                                 self.emit_utilization(
@@ -451,9 +433,11 @@ class CpuUtilization(Utilization):
         self.util_calc = CpuUtilizationCalculator(0)
 
     def is_metric(self, values_obj):
-        return (values_obj.plugin == "aggregation" and
-                values_obj.type == "cpu" and
-                values_obj.plugin_instance == "cpu-average")
+        return (
+            values_obj.plugin == "aggregation"
+            and values_obj.type == "cpu"
+            and values_obj.plugin_instance == "cpu-average"
+        )
 
     def read(self):
         """
@@ -463,20 +447,15 @@ class CpuUtilization(Utilization):
         :return: None
         """
         min_expected_metrics = 8
-        if sys.platform == 'darwin':
+        if sys.platform == "darwin":
             min_expected_metrics = 4
 
         for t in sorted(self.metrics.keys()):
             if t > self.last_time:
                 if len(self.metrics[t]) >= min_expected_metrics:
-                    response = self.util_calc.calculateUtilization(
-                        t,
-                        self.metrics[t]
-                    )
+                    response = self.util_calc.calculateUtilization(t, self.metrics[t])
                     if response is not None:
-                        self.emit_utilization(*response,
-                                              metric="cpu.utilization",
-                                              obj=(t, self.metrics[t]))
+                        self.emit_utilization(*response, metric="cpu.utilization", obj=(t, self.metrics[t]))
                     del (self.metrics[t])
                 else:
                     # skip em once to give metrics time to arrive
@@ -531,8 +510,7 @@ class Total(PluginInstanceUtilization):
                     if len(self.metrics[t]) != self.size:
                         del (self.metrics[t])
                     else:
-                        self.current_plugin_instances = set(
-                            self.metrics[t].keys())
+                        self.current_plugin_instances = set(self.metrics[t].keys())
                 return True
         else:
             return True
@@ -560,7 +538,7 @@ class Total(PluginInstanceUtilization):
                         self.size = len(m)
                     prev = copy.copy(self.previous)
                     current = {}
-                    for x, y in m.iteritems():
+                    for x, y in m.items():
                         current[x] = sum(y[self.total_type])
                     diff = {}
                     for k in current:
@@ -568,13 +546,10 @@ class Total(PluginInstanceUtilization):
                             v = current[k] - prev[k]
                             if v < 0:
                                 if t <= self.last_time:
-                                    debug(
-                                        "older metric, don't show wrapping t "
-                                        "%s last %s" % (t, self.last_time))
+                                    debug("older metric, don't show wrapping t " "%s last %s" % (t, self.last_time))
                                     del (self.metrics[t])
                                     continue
-                                debug("we've wrapped %s prev %s current %s" %
-                                      (k, prev[k], current[k]))
+                                debug("we've wrapped %s prev %s current %s" % (k, prev[k], current[k]))
                                 v = current[k]
                             del (prev[k])
                         else:
@@ -636,8 +611,7 @@ class DfTotalUtilization(Total):
                     if current > self.current_plugin_instances:
                         self.size = len(pm)
                         diff = set(pm.keys()) - self.current_plugin_instances
-                        debug("updating current_plugin_instances with diff %s"
-                              % diff)
+                        debug("updating current_plugin_instances with diff %s" % diff)
                         self.current_plugin_instances = set(pm.keys())
                     for plugin_instance in self.current_plugin_instances:
                         m = self.metrics[t][plugin_instance]
@@ -648,8 +622,7 @@ class DfTotalUtilization(Total):
                             emit = False
                             # skip em once to give metrics time to arrive
                             if pm.skipped:
-                                debug("incomplete metric %s %s %s" %
-                                      (plugin_instance, t, pm))
+                                debug("incomplete metric %s %s %s" % (plugin_instance, t, pm))
                                 break
                             else:
                                 pm.skipped = True
@@ -657,18 +630,14 @@ class DfTotalUtilization(Total):
                 else:
                     emit = False
                     if pm.skipped:
-                        debug("incomplete metric %s %s" %
-                              (t, pm))
+                        debug("incomplete metric %s %s" % (t, pm))
                         skipped_plugin_instances = set(pm.keys())
-                        difference = self.current_plugin_instances.difference(
-                            skipped_plugin_instances)
+                        difference = self.current_plugin_instances.difference(skipped_plugin_instances)
                         for d in difference:
                             if d in self.probation_plugin_instances:
                                 self.current_plugin_instances.remove(d)
                                 self.size = len(self.current_plugin_instances)
-                                debug(
-                                    "probate plugin_instance removed %s size "
-                                    "now %s" % (d, self.size))
+                                debug("probate plugin_instance removed %s size " "now %s" % (d, self.size))
                                 self.probation_plugin_instances.remove(d)
                             else:
                                 debug("setting probate plugin_instance %s" % d)
@@ -679,9 +648,7 @@ class DfTotalUtilization(Total):
                         delete = False
 
                 if emit:
-                    self.emit_utilization(t, used_total,
-                                          used_total + free_total,
-                                          "disk.summary_utilization", obj=pm)
+                    self.emit_utilization(t, used_total, used_total + free_total, "disk.summary_utilization", obj=pm)
                 if delete:
                     del (self.metrics[t])
             else:
@@ -726,9 +693,15 @@ class UtilizationFactory:
     """
 
     def __init__(self):
-        self.utilizations = [CpuUtilization(), MemoryUtilization(),
-                             DfUtilization(), NetworkTotal(), DiskTotal(),
-                             DfTotalUtilization(), CpuUtilizationPerCore()]
+        self.utilizations = [
+            CpuUtilization(),
+            MemoryUtilization(),
+            DfUtilization(),
+            NetworkTotal(),
+            DiskTotal(),
+            DfTotalUtilization(),
+            CpuUtilizationPerCore(),
+        ]
 
     def write(self, values_obj):
         """
@@ -772,6 +745,7 @@ class LargeNotif:
     Used because the Python plugin supplied notification does not provide
     us with enough space
     """
+
     host = ""
     message = ""
     plugin = PLUGIN_NAME
@@ -788,16 +762,20 @@ class LargeNotif:
         self.host = HOST
 
     def __repr__(self):
-        return 'PUTNOTIF %s/%s-%s/%s-%s %s' % (self.host, self.plugin,
-                                               self.plugin_instance,
-                                               self.type, self.type_instance,
-                                               self.message)
+        return "PUTNOTIF %s/%s-%s/%s-%s %s" % (
+            self.host,
+            self.plugin,
+            self.plugin_instance,
+            self.type,
+            self.type_instance,
+            self.message,
+        )
 
 
 def debug(param):
     """ debug messages and understand if we're in collectd or a program """
     if DEBUG:
-        if __name__ != '__main__':
+        if __name__ != "__main__":
             collectd.info("%s: DEBUG %s" % (PLUGIN_NAME, param))
         else:
             sys.stderr.write("%s\n" % param)
@@ -805,7 +783,7 @@ def debug(param):
 
 def log(param):
     """ log messages and understand if we're in collectd or a program """
-    if __name__ != '__main__':
+    if __name__ != "__main__":
         collectd.info("%s: %s" % (PLUGIN_NAME, param))
     else:
         sys.stderr.write("%s\n" % param)
@@ -824,61 +802,60 @@ def plugin_config(conf):
 
     global POST_URLS
     for kv in conf.children:
-        if kv.key == 'Notifications':
+        if kv.key == "Notifications":
             if kv.values[0]:
                 global NOTIFICATIONS
                 NOTIFICATIONS = kv.values[0]
-        elif kv.key == 'ProcessInfo':
+        elif kv.key == "ProcessInfo":
             global PROCESS_INFO
             PROCESS_INFO = kv.values[0]
-        elif kv.key == 'Datapoints':
+        elif kv.key == "Datapoints":
             global DATAPOINTS
             DATAPOINTS = kv.values[0]
-        elif kv.key == 'Utilization':
+        elif kv.key == "Utilization":
             global UTILIZATION
             UTILIZATION = kv.values[0]
-        elif kv.key == 'PerCoreCPUUtil':
+        elif kv.key == "PerCoreCPUUtil":
             global PERCORECPUUTIL
             PERCORECPUUTIL = kv.values[0]
-        elif kv.key == 'OverallCPUUtil':
+        elif kv.key == "OverallCPUUtil":
             global OVERALLCPUUTIL
             OVERALLCPUUTIL = kv.values[0]
-        elif kv.key == 'Verbose':
+        elif kv.key == "Verbose":
             global DEBUG
             DEBUG = kv.values[0]
-            log('setting verbose to %s' % DEBUG)
-        elif kv.key == 'URL':
+            log("setting verbose to %s" % DEBUG)
+        elif kv.key == "URL":
             POST_URLS.extend(kv.values)
-        elif kv.key == 'Token':
+        elif kv.key == "Token":
             global API_TOKEN
             API_TOKENS.extend(kv.values)
-        elif kv.key == 'Timeout':
+        elif kv.key == "Timeout":
             global TIMEOUT
             TIMEOUT = int(kv.values[0])
-        elif kv.key == 'Interval':
+        elif kv.key == "Interval":
             global INTERVAL
             INTERVAL = int(kv.values[0])
-        elif kv.key == 'NotifyLevel':
+        elif kv.key == "NotifyLevel":
             global NOTIFY_LEVEL
-            if string.lower(kv.values[0]) == "okay":
+            if kv.values[0].lower() == "okay":
                 NOTIFY_LEVEL = 4
-            elif string.lower(kv.values[0]) == "warning":
+            elif kv.values[0].lower() == "warning":
                 NOTIFY_LEVEL = 2
-            elif string.lower(kv.values[0]) == "failure":
+            elif kv.values[0].lower() == "failure":
                 NOTIFY_LEVEL = 1
-        elif kv.key == 'ProcPath':
+        elif kv.key == "ProcPath":
             psutil.PROCFS_PATH = kv.values[0]
             debug("Setting proc path to %s for psutil" % psutil.PROCFS_PATH)
-        elif kv.key == 'EtcPath':
+        elif kv.key == "EtcPath":
             global ETC_PATH
             ETC_PATH = kv.values[0].rstrip(os.pathsep).rstrip(os.sep)
-            debug("Setting etc path to %s for os release detection"
-                  % ETC_PATH)
-        elif kv.key == 'PersistencePath':
+            debug("Setting etc path to %s for os release detection" % ETC_PATH)
+        elif kv.key == "PersistencePath":
             global PERSISTENCE_PATH
             PERSISTENCE_PATH = kv.values[0]
             load_persistent_data()
-        elif kv.key == 'HostMetadata':
+        elif kv.key == "HostMetadata":
             global HOST_METADATA
             HOST_METADATA = kv.values[0]
 
@@ -886,9 +863,7 @@ def plugin_config(conf):
         POST_URLS = [DEFAULT_POST_URL]
 
     if API_TOKENS and len(POST_URLS) != len(API_TOKENS):
-        log(
-            "You have specified a different number of Tokens than URLs, "
-            "please fix this")
+        log("You have specified a different number of Tokens than URLs, " "please fix this")
         sys.exit(0)
 
     if NOTIFICATIONS:
@@ -900,8 +875,7 @@ def plugin_config(conf):
     collectd.register_write(write)
 
     if UTILIZATION:
-        collectd.register_read(UTILIZATION_INSTANCE.read, 1,
-                               name="utilization_reads")
+        collectd.register_read(UTILIZATION_INSTANCE.read, 1, name="utilization_reads")
 
     if OVERALLCPUUTIL is not True:
         log("Overall cpu utilization has been disabled via configuration")
@@ -920,7 +894,7 @@ def plugin_config(conf):
 def load_persistent_data():
     """Load persistent data from a specified path"""
     try:
-        with open(os.path.join(PERSISTENCE_PATH, PERSISTENCE_FILE), 'r') as js:
+        with open(os.path.join(PERSISTENCE_PATH, PERSISTENCE_FILE), "r") as js:
             persist = json.load(js)
             debug("Loaded the following persistent data %s" % persist)
             if SAVED_HOST_KEY in persist:
@@ -931,8 +905,7 @@ def load_persistent_data():
                 NEXT_METADATA_SEND = persist[NEXT_METADATA_SEND_KEY]
             if NEXT_METADATA_SEND_INTERVAL_KEY in persist:
                 global NEXT_METADATA_SEND_INTERVAL
-                NEXT_METADATA_SEND_INTERVAL = \
-                    persist[NEXT_METADATA_SEND_INTERVAL_KEY]
+                NEXT_METADATA_SEND_INTERVAL = persist[NEXT_METADATA_SEND_INTERVAL_KEY]
 
     except Exception as e:
         debug("Unable to load persistence data %s" % e)
@@ -942,13 +915,11 @@ def save_persistent_data():
     """Persist data about the metadata plugin to a file"""
     if PERSISTENCE_PATH:
         try:
-            with open(os.path.join(PERSISTENCE_PATH,
-                                   PERSISTENCE_FILE), 'w') as f:
+            with open(os.path.join(PERSISTENCE_PATH, PERSISTENCE_FILE), "w") as f:
                 persist = {
                     SAVED_HOST_KEY: HOST,
                     NEXT_METADATA_SEND_KEY: NEXT_METADATA_SEND,
-                    NEXT_METADATA_SEND_INTERVAL_KEY:
-                        NEXT_METADATA_SEND_INTERVAL
+                    NEXT_METADATA_SEND_INTERVAL_KEY: NEXT_METADATA_SEND_INTERVAL,
                 }
                 json.dump(persist, f)
         except Exception as e:
@@ -956,7 +927,7 @@ def save_persistent_data():
 
 
 def compact(thing):
-    return json.dumps(thing, separators=(',', ':'))
+    return json.dumps(thing, separators=(",", ":"))
 
 
 def write(values_obj):
@@ -967,12 +938,14 @@ def write(values_obj):
     steal_host_from_notifications(values_obj)
 
     global MAX_LENGTH
-    if not MAX_LENGTH and values_obj.plugin == PLUGIN_NAME and PLUGIN_UPTIME \
-            in values_obj.type_instance \
-            and values_obj.type_instance[-1] is not "]":
+    if (
+        not MAX_LENGTH
+        and values_obj.plugin == PLUGIN_NAME
+        and PLUGIN_UPTIME in values_obj.type_instance
+        and values_obj.type_instance[-1] is not "]"
+    ):
         MAX_LENGTH = len(values_obj.type_instance)
-        log("This collectd has a limit of %s characters; will adhere to "
-            "that" % MAX_LENGTH)
+        log("This collectd has a limit of %s characters; will adhere to " "that" % MAX_LENGTH)
 
 
 def send():
@@ -997,19 +970,16 @@ def send():
     if NEXT_METADATA_SEND == 0:
         dither = NEXT_METADATA_SEND_INTERVAL.pop(0)
         NEXT_METADATA_SEND = time.time() + dither
-        log("adding small dither of %s seconds before sending notifications"
-            % dither)
+        log("adding small dither of %s seconds before sending notifications" % dither)
         save_persistent_data()
     if NEXT_METADATA_SEND < time.time():
         send_notifications()
         if len(NEXT_METADATA_SEND_INTERVAL) > 1:
-            NEXT_METADATA_SEND = \
-                time.time() + NEXT_METADATA_SEND_INTERVAL.pop(0)
+            NEXT_METADATA_SEND = time.time() + NEXT_METADATA_SEND_INTERVAL.pop(0)
         else:
             NEXT_METADATA_SEND = time.time() + NEXT_METADATA_SEND_INTERVAL[0]
 
-        log("till next metadata %s seconds"
-            % str(NEXT_METADATA_SEND - time.time()))
+        log("till next metadata %s seconds" % str(NEXT_METADATA_SEND - time.time()))
         save_persistent_data()
 
     global LAST
@@ -1032,12 +1002,12 @@ def all_interfaces():
         :return: all ip addresses by interface.
                  or empty list if netifaces not installed
     """
-    if sys.platform == 'darwin':
+    if sys.platform == "darwin":
         ifaces = []
         try:
             for interface in interfaces():
                 for link in ifaddresses(interface).get(AF_INET, ()):
-                    ifaces.append((interface, link['addr']))
+                    ifaces.append((interface, link["addr"]))
         except:
             pass
         return ifaces
@@ -1056,14 +1026,12 @@ def all_interfaces():
         max_possible = 8  # initial value
         while True:
             _bytes = max_possible * struct_size
-            names = array.array('B')
+            names = array.array("B")
             for i in range(0, _bytes):
                 names.append(0)
-            outbytes = struct.unpack('iL', fcntl.ioctl(
-                s.fileno(),
-                0x8912,  # SIOCGIFCONF
-                struct.pack('iL', _bytes, names.buffer_info()[0])
-            ))[0]
+            outbytes = struct.unpack(
+                "iL", fcntl.ioctl(s.fileno(), 0x8912, struct.pack("iL", _bytes, names.buffer_info()[0]))  # SIOCGIFCONF
+            )[0]
             if outbytes == _bytes:
                 max_possible *= 2
             else:
@@ -1071,8 +1039,8 @@ def all_interfaces():
         namestr = names.tostring()
         ifaces = []
         for i in range(0, outbytes, struct_size):
-            iface_name = bytes.decode(namestr[i:i + 16]).split('\0', 1)[0]
-            iface_addr = socket.inet_ntoa(namestr[i + 20:i + 24])
+            iface_name = bytes.decode(namestr[i : i + 16]).split("\0", 1)[0]
+            iface_addr = socket.inet_ntoa(namestr[i + 20 : i + 24])
             ifaces.append((iface_name, iface_addr))
 
         return ifaces
@@ -1084,27 +1052,22 @@ def get_interfaces(host_info={}):
     for interface, ipaddress in all_interfaces():
         if ipaddress == "127.0.0.1":
             continue
-        interfaces[interface] = \
-            (ipaddress, socket.getfqdn(ipaddress))
+        interfaces[interface] = (ipaddress, socket.getfqdn(ipaddress))
     host_info["sf_host_interfaces"] = compact(interfaces)
 
 
 def get_cpu_info(host_info={}):
 
     """populate host_info with cpu information"""
-    if sys.platform == 'darwin':
-        host_info["host_cpu_model"] = \
-            popen(["sysctl", "-n", "machdep.cpu.brand_string"])
-        host_info["host_cpu_cores"] = \
-            popen(["sysctl", "-n", "machdep.cpu.core_count"])
-        host_info["host_logical_cpus"] = \
-            popen(["sysctl", "-n", "hw.logicalcpu"])
+    if sys.platform == "darwin":
+        host_info["host_cpu_model"] = popen(["sysctl", "-n", "machdep.cpu.brand_string"])
+        host_info["host_cpu_cores"] = popen(["sysctl", "-n", "machdep.cpu.core_count"])
+        host_info["host_logical_cpus"] = popen(["sysctl", "-n", "hw.logicalcpu"])
 
         num_processor_result = popen(["system_profiler", "SPHardwareDataType"])
         for x in num_processor_result.splitlines():
             if x.strip().startswith("Number of Processors"):
-                host_info["host_physical_cpus"] = \
-                    x.strip().split(":")[1].strip()
+                host_info["host_physical_cpus"] = x.strip().split(":")[1].strip()
                 break
 
     else:
@@ -1113,8 +1076,8 @@ def get_cpu_info(host_info={}):
             nb_cores = 0
             nb_units = 0
             for p in f.readlines():
-                if ':' in p:
-                    x, y = map(lambda x: x.strip(), p.split(':', 1))
+                if ":" in p:
+                    x, y = map(lambda x: x.strip(), p.split(":", 1))
                     if x.startswith("physical id"):
                         if nb_cpu < int(y):
                             nb_cpu = int(y)
@@ -1164,13 +1127,13 @@ def get_aws_info(host_info={}):
         response = urllib2.urlopen(req, timeout=0.2)
         identity = json.loads(response.read())
         want = {
-            'availability_zone': 'availabilityZone',
-            'instance_type': 'instanceType',
-            'instance_id': 'instanceId',
-            'image_id': 'imageId',
-            'account_id': 'accountId',
-            'region': 'region',
-            'architecture': 'architecture',
+            "availability_zone": "availabilityZone",
+            "instance_type": "instanceType",
+            "instance_id": "instanceId",
+            "image_id": "imageId",
+            "account_id": "accountId",
+            "region": "region",
+            "architecture": "architecture",
         }
         for k, v in iter(want.items()):
             host_info["aws_" + k] = identity[v]
@@ -1190,9 +1153,11 @@ def set_aws_url(host_info):
         for i in range(len(POST_URLS)):
             result = urlparse(POST_URLS[i])
             if "sfxdim_AWSUniqueId" not in result.query:
-                dim = "sfxdim_AWSUniqueId=%s_%s_%s" % \
-                      (host_info["aws_instance_id"],
-                       host_info["aws_region"], host_info["aws_account_id"])
+                dim = "sfxdim_AWSUniqueId=%s_%s_%s" % (
+                    host_info["aws_instance_id"],
+                    host_info["aws_region"],
+                    host_info["aws_account_id"],
+                )
                 if result.query:
                     POST_URLS[i] += "&%s" % dim
                 else:
@@ -1203,9 +1168,7 @@ def set_aws_url(host_info):
 
 def popen(command, include_stderr=False):
     """ using subprocess instead of check_output for 2.6 comparability """
-    out, err = subprocess.Popen(command,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE).communicate()
+    out, err = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
     return out.strip() + err.strip() if include_stderr else out.strip()
 
 
@@ -1224,13 +1187,12 @@ def get_collectd_version():
         if "COLLECTD_VERSION" in os.environ:
             COLLECTD_VERSION = os.environ.get("COLLECTD_VERSION")
         else:
-            if sys.platform == 'darwin':
+            if sys.platform == "darwin":
                 output = popen(["/usr/local/sbin/collectd", "-h"])
             else:
                 output = popen(["/proc/self/exe", "-h"], include_stderr=True)
 
-            regexed = re.search("collectd (.*), http://collectd.org/",
-                                output.decode())
+            regexed = re.search("collectd (.*), http://collectd.org/", output.decode())
             if regexed:
                 COLLECTD_VERSION = regexed.groups()[0]
     except Exception:
@@ -1273,9 +1235,11 @@ def getOsRelease():
 
 
 def getCentos():
-    for file in [os.path.join(ETC_PATH, "centos-release"),
-                 os.path.join(ETC_PATH, "redhat-release"),
-                 os.path.join(ETC_PATH, "system-release")]:
+    for file in [
+        os.path.join(ETC_PATH, "centos-release"),
+        os.path.join(ETC_PATH, "redhat-release"),
+        os.path.join(ETC_PATH, "system-release"),
+    ]:
         if os.path.isfile(file):
             with open(file) as f:
                 line = f.read()
@@ -1306,15 +1270,15 @@ def parse_bytes(possible_bytes):
     try:
         return int(possible_bytes)
     except:
-        if possible_bytes[-1].lower() == 'm':
+        if possible_bytes[-1].lower() == "m":
             return int(float(possible_bytes[:-1]) * 1024)
-        if possible_bytes[-1].lower() == 'g':
+        if possible_bytes[-1].lower() == "g":
             return int(float(possible_bytes[:-1]) * 1024 ** 2)
-        if possible_bytes[-1].lower() == 't':
+        if possible_bytes[-1].lower() == "t":
             return int(float(possible_bytes[:-1]) * 1024 ** 3)
-        if possible_bytes[-1].lower() == 'p':
+        if possible_bytes[-1].lower() == "p":
             return int(float(possible_bytes[:-1]) * 1024 ** 4)
-        if possible_bytes[-1].lower() == 'e':
+        if possible_bytes[-1].lower() == "e":
             return int(float(possible_bytes[:-1]) * 1024 ** 5)
 
 
@@ -1347,7 +1311,7 @@ def read_proc_file(pid, file, field=None):
 
 def get_priority(pid):
 
-    if sys.platform == 'darwin':
+    if sys.platform == "darwin":
         result = popen(["ps", "-O", "pri", "-p", str(pid)]).splitlines()
         return result[1].split()[1]
     else:
@@ -1395,7 +1359,7 @@ def send_top():
     for p in psutil.process_iter():
         try:
             command_value = p.name()
-            if sys.platform != 'darwin':
+            if sys.platform != "darwin":
                 cpu_nice_value = get_nice(p)
                 command_value = get_command(p)
             else:
@@ -1417,7 +1381,7 @@ def send_top():
                 p.cpu_percent(),  # % cpu, float
                 p.memory_percent(),  # % mem, float
                 to_time(p.cpu_times().system + p.cpu_times().user),  # cpu
-                command_value  # command
+                command_value,  # command
             ]
         except Exception:
             # eat exceptions here because they're very noisy
@@ -1434,9 +1398,8 @@ def send_top():
 
 def get_memory(host_info):
 
-    if sys.platform == 'darwin':
-        host_info["host_mem_total"] = \
-            str(int(popen(["sysctl", "-n", "hw.memsize"])) / 1024)
+    if sys.platform == "darwin":
+        host_info["host_mem_total"] = str(int(popen(["sysctl", "-n", "hw.memsize"])) / 1024)
     else:
         """get total physical memory for machine"""
         with open(os.path.join(psutil.PROCFS_PATH, "meminfo")) as f:
@@ -1478,34 +1441,36 @@ def map_diff(host_info, old_host_info):
     return diff
 
 
-def put_val(plugin_instance, type_instance, val, plugin=PLUGIN_NAME, t=0.0,
-            i=INTERVAL):
+def put_val(plugin_instance, type_instance, val, plugin=PLUGIN_NAME, t=0.0, i=INTERVAL):
     """Create collectd metric"""
     try:
         if __name__ != "__main__":
-            collectd.Values(plugin=plugin,
-                            time=t,
-                            plugin_instance=plugin_instance,
-                            type=val[1].lower(),
-                            meta={'0': True},
-                            type_instance=type_instance,
-                            interval=i,
-                            values=[val[0]]).dispatch()
+            collectd.Values(
+                plugin=plugin,
+                time=t,
+                plugin_instance=plugin_instance,
+                type=val[1].lower(),
+                meta={"0": True},
+                type_instance=type_instance,
+                interval=i,
+                values=[val[0]],
+            ).dispatch()
         else:
             h = platform.node()
-            print('PUTVAL %s/%s/%s-%s interval=%d N:%s' % (
-                h, PLUGIN_NAME, val[1].lower(),
-                type_instance, INTERVAL, val[0]))
+            print(
+                "PUTVAL %s/%s/%s-%s interval=%d N:%s"
+                % (h, PLUGIN_NAME, val[1].lower(), type_instance, INTERVAL, val[0])
+            )
     except TypeError:
         global UTILIZATION
         if UTILIZATION:
             UTILIZATION = False
-            log("ERROR: Utilization features have been disabled because " +
-                "TypesDB hasn't been specified")
+            log("ERROR: Utilization features have been disabled because " + "TypesDB hasn't been specified")
             log(
-                "To use the utilization features of this plugin, please " +
-                "update the top of your config to include 'TypesDB " +
-                "\"/opt/signalfx-collectd-plugin/types.db.plugin\"'")
+                "To use the utilization features of this plugin, please "
+                + "update the top of your config to include 'TypesDB "
+                + '"/opt/signalfx-collectd-plugin/types.db.plugin"\''
+            )
 
 
 def get_uptime():
@@ -1529,10 +1494,16 @@ def send_datapoints():
         return
 
     plugin_instance = "[metadata=%s,collectd=%s,signalfx_agent=%s]" % (
-        VERSION, get_collectd_version(), get_signalfx_agent_version())
+        VERSION,
+        get_collectd_version(),
+        get_signalfx_agent_version(),
+    )
     type_instance = "%s[linux=%s,release=%s,version=%s]" % (
-        PLUGIN_UPTIME, get_linux_version(), platform.release(),
-        platform.version())
+        PLUGIN_UPTIME,
+        get_linux_version(),
+        platform.release(),
+        platform.version(),
+    )
     if MAX_LENGTH and len(type_instance) > MAX_LENGTH:
         type_instance = PLUGIN_UPTIME
     put_val(plugin_instance, type_instance, [get_uptime(), "gauge"])
@@ -1545,30 +1516,25 @@ def send_datapoints():
     put_val("", "sf.host-response.errors", [RESPONSE_ERRORS, "counter"])
 
 
-def putnotif(property_name, message, plugin_name=PLUGIN_NAME,
-             type_instance=HOST_TYPE_INSTANCE, type=TYPE):
+def putnotif(property_name, message, plugin_name=PLUGIN_NAME, type_instance=HOST_TYPE_INSTANCE, type=TYPE):
     """Create collectd notification"""
     if __name__ != "__main__":
-        notif = collectd.Notification(plugin=plugin_name,
-                                      plugin_instance=property_name,
-                                      type_instance=type_instance,
-                                      type=type)
+        notif = collectd.Notification(
+            plugin=plugin_name, plugin_instance=property_name, type_instance=type_instance, type=type
+        )
         notif.severity = 4  # OKAY
         notif.message = message
         notif.dispatch()
     else:
         h = platform.node()
-        print('PUTNOTIF %s/%s-%s/%s-%s %s' % (h, plugin_name, property_name,
-                                              type, type_instance, message))
+        print("PUTNOTIF %s/%s-%s/%s-%s %s" % (h, plugin_name, property_name, type, type_instance, message))
 
 
 def write_notifications(host_info):
     """emit any new notifications"""
     for property_name, property_value in iter(host_info.items()):
         if len(property_value) > 255:
-            receive_notifications(LargeNotif(property_value,
-                                             HOST_TYPE_INSTANCE,
-                                             property_name))
+            receive_notifications(LargeNotif(property_value, HOST_TYPE_INSTANCE, property_name))
         else:
             putnotif(property_name, property_value)
 
@@ -1586,11 +1552,7 @@ def get_severity(severity_int):
     :param severity_int: integer value for severity
     :return: collectd string for severity
     """
-    return {
-        1: "FAILURE",
-        2: "WARNING",
-        4: "OKAY"
-    }[severity_int]
+    return {1: "FAILURE", 2: "WARNING", 4: "OKAY"}[severity_int]
 
 
 def update_response_times(diff):
@@ -1631,8 +1593,7 @@ def steal_host_from_notifications(notif):
         # if host is identified and it's different from the saved_host,
         # reset the metadata send interval and next metadata send time
         if SAVED_HOST and SAVED_HOST != HOST:
-            debug(("The saved hostname '{0}' does not match the current "
-                   "hostname '{1}'.").format(SAVED_HOST, HOST))
+            debug(("The saved hostname '{0}' does not match the current " "hostname '{1}'.").format(SAVED_HOST, HOST))
             reset_metadata_send()
             SAVED_HOST = HOST
         DOGSTATSD_INSTANCE.set_host(notif.host)
@@ -1654,15 +1615,16 @@ def receive_notifications(notif):
 
     notif_dict = {}
     # because collectd c->python is a bit limited and lacks __dict__
-    for x in ['host', 'message', 'plugin', 'plugin_instance', 'severity',
-              'time', 'type', 'type_instance']:
+    for x in ["host", "message", "plugin", "plugin_instance", "severity", "time", "type", "type_instance"]:
         notif_dict[x] = getattr(notif, x, "")
 
     # emit notifications that are ours, or satisfy the notify level
-    if notif_dict['plugin'] != PLUGIN_NAME and notif_dict['type'] != TYPE \
-            and notif_dict['type_instance'] not in [HOST_TYPE_INSTANCE,
-                                                    TOP_TYPE_INSTANCE] \
-            and notif_dict["severity"] > NOTIFY_LEVEL:
+    if (
+        notif_dict["plugin"] != PLUGIN_NAME
+        and notif_dict["type"] != TYPE
+        and notif_dict["type_instance"] not in [HOST_TYPE_INSTANCE, TOP_TYPE_INSTANCE]
+        and notif_dict["severity"] > NOTIFY_LEVEL
+    ):
         log("event ignored: " + str(notif_dict))
         return
 
@@ -1682,7 +1644,7 @@ def receive_notifications(notif):
             headers["X-SF-TOKEN"] = API_TOKENS[i]
         start = time.time()
         try:
-            req = urllib2.Request(post_url, data, headers)
+            req = urllib2.Request(post_url, data.encode("utf-8"), headers)
             urllib2.urlopen(req, timeout=TIMEOUT)
         except Exception:
             t, e = sys.exc_info()[:2]
@@ -1719,8 +1681,7 @@ else:
     # outside plugin just collect the info
     restore_sigchld()
     send()
-    log(json.dumps(get_host_info(), sort_keys=True,
-                   indent=4, separators=(',', ': ')))
+    log(json.dumps(get_host_info(), sort_keys=True, indent=4, separators=(",", ": ")))
     if len(sys.argv) < 2:
         while True:
             time.sleep(INTERVAL)

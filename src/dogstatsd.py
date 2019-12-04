@@ -33,24 +33,22 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
-import threading
-
-"""
-A Python Statsd implementation with some datadog special sauce.
-"""
-
 # stdlib
 import logging
 import os
 import select
 import socket
+import threading
 import zlib
 
 import simplejson as json
 
 # project
-from aggregator import MetricsBucketAggregator, DEFAULT_HISTOGRAM_AGGREGATES, \
-    DEFAULT_HISTOGRAM_PERCENTILES
+from aggregator import DEFAULT_HISTOGRAM_AGGREGATES, DEFAULT_HISTOGRAM_PERCENTILES, MetricsBucketAggregator
+
+"""
+A Python Statsd implementation with some datadog special sauce.
+"""
 
 
 # urllib3 logs a bunch of stuff at the info level
@@ -58,7 +56,7 @@ requests_log = logging.getLogger("requests.packages.urllib3")
 requests_log.setLevel(logging.WARN)
 requests_log.propagate = True
 
-log = logging.getLogger('dogstatsd')
+log = logging.getLogger("dogstatsd")
 
 # Dogstatsd constants in seconds
 DOGSTATSD_FLUSH_INTERVAL = 10
@@ -79,11 +77,10 @@ COMPRESS_THRESHOLD = 1024
 def serialize_metrics(metrics):
     serialized = json.dumps({"series": metrics})
     if len(serialized) > COMPRESS_THRESHOLD:
-        headers = {'Content-Type': 'application/json',
-                   'Content-Encoding': 'deflate'}
+        headers = {"Content-Type": "application/json", "Content-Encoding": "deflate"}
         serialized = zlib.compress(serialized)
     else:
-        headers = {'Content-Type': 'application/json'}
+        headers = {"Content-Type": "application/json"}
     return serialized, headers
 
 
@@ -96,7 +93,9 @@ class Server(object):
     A statsd udp server.
     """
 
-    def __init__(self, metrics_aggregator, host, port, forward_to_host=None, forward_to_port=None, timeout=UDP_SOCKET_TIMEOUT):
+    def __init__(
+        self, metrics_aggregator, host, port, forward_to_host=None, forward_to_port=None, timeout=UDP_SOCKET_TIMEOUT
+    ):
         self.host = host
         self.port = int(port)
         self.address = (self.host, self.port)
@@ -110,14 +109,16 @@ class Server(object):
 
         self.should_forward = forward_to_host is not None
 
-
         self.forward_udp_sock = None
         # In case we want to forward every packet received to another statsd server
         if self.should_forward:
             if forward_to_port is None:
                 forward_to_port = 8125
 
-            log.info("External statsd forwarding enabled. All packets received will be forwarded to %s:%s" % (forward_to_host, forward_to_port))
+            log.info(
+                "External statsd forwarding enabled. All packets received will be forwarded to %s:%s"
+                % (forward_to_host, forward_to_port)
+            )
             try:
                 self.forward_udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 self.forward_udp_sock.connect((forward_to_host, forward_to_port))
@@ -141,12 +142,12 @@ class Server(object):
         try:
             self.socket.bind(self.address)
         except socket.gaierror:
-            if self.address[0] == 'localhost':
+            if self.address[0] == "localhost":
                 log.warning("Warning localhost seems undefined in your host file, using 127.0.0.1 instead")
-                self.address = ('127.0.0.1', self.address[1])
+                self.address = ("127.0.0.1", self.address[1])
                 self.socket.bind(self.address)
 
-        log.info('Listening on host & port: %s' % str(self.socket.getsockname()))
+        log.info("Listening on host & port: %s" % str(self.socket.getsockname()))
 
         # Inline variables for quick look-up.
         buffer_size = self.buffer_size
@@ -170,7 +171,7 @@ class Server(object):
 
                     if should_forward:
                         forward_udp_sock.send(message)
-            except select_error, se:
+            except select_error as se:
                 # Ignore interrupted system calls from sigterm.
                 errno = se[0]
                 if errno != 4:
@@ -178,12 +179,11 @@ class Server(object):
             except (KeyboardInterrupt, SystemExit):
                 break
             except Exception:
-                log.exception('Error receiving datagram')
+                log.exception("Error receiving datagram")
 
     def stop(self):
         self.shouldStop.set()
         # print "STOP().  Will clear running %s %s" % (self.running, self.running.isSet())
-
 
 
 def init(server_host, port, timeout=UDP_SOCKET_TIMEOUT, aggregator_interval=DOGSTATSD_AGGREGATOR_BUCKET_SIZE):
