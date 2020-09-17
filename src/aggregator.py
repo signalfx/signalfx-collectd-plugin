@@ -546,7 +546,7 @@ class Aggregator(object):
         try:
             name_and_metadata = packet.split(':', 1)
             if len(name_and_metadata) != 2:
-                raise Exception(u'Unparseable event packet: %s' % packet)
+                raise Exception('Unparseable event packet: %s' % packet)
             # Event syntax:
             # _e{5,4}:title|body|meta
             name = name_and_metadata[0]
@@ -561,23 +561,23 @@ class Aggregator(object):
             }
             meta = metadata[title_length+text_length+1:]
             for m in meta.split('|')[1:]:
-                if m[0] == u't':
+                if m[0] == 't':
                     event['alert_type'] = m[2:]
-                elif m[0] == u'k':
+                elif m[0] == 'k':
                     event['aggregation_key'] = m[2:]
-                elif m[0] == u's':
+                elif m[0] == 's':
                     event['source_type_name'] = m[2:]
-                elif m[0] == u'd':
+                elif m[0] == 'd':
                     event['date_happened'] = int(m[2:])
-                elif m[0] == u'p':
+                elif m[0] == 'p':
                     event['priority'] = m[2:]
-                elif m[0] == u'h':
+                elif m[0] == 'h':
                     event['hostname'] = m[2:]
-                elif m[0] == u'#':
-                    event['tags'] = sorted(m[1:].split(u','))
+                elif m[0] == '#':
+                    event['tags'] = sorted(m[1:].split(','))
             return event
         except (IndexError, ValueError):
-            raise Exception(u'Unparseable event packet: %s' % packet)
+            raise Exception('Unparseable event packet: %s' % packet)
 
     def parse_sc_packet(self, packet):
         try:
@@ -606,19 +606,19 @@ class Aggregator(object):
             if not meta:
                 return service_check
 
-            meta = unicode(meta)
+            meta = str(meta)
             for m in meta.split('|'):
-                if m[0] == u'd':
+                if m[0] == 'd':
                     service_check['timestamp'] = float(m[2:])
-                elif m[0] == u'h':
+                elif m[0] == 'h':
                     service_check['hostname'] = m[2:]
-                elif m[0] == u'#':
-                    service_check['tags'] = sorted(m[1:].split(u','))
+                elif m[0] == '#':
+                    service_check['tags'] = sorted(m[1:].split(','))
 
             return service_check
 
         except (IndexError, ValueError):
-            raise Exception(u'Unparseable service check packet: %s' % packet)
+            raise Exception('Unparseable service check packet: %s' % packet)
 
     def submit_packets(self, packets):
         # We should probably consider that packets are always encoded
@@ -627,7 +627,7 @@ class Aggregator(object):
         # Keep a very conservative approach anyhow
         # Clients MUST always send UTF-8 encoded content
         if self.utf8_decoding:
-            packets = unicode(packets, 'utf-8', errors='replace')
+            packets = str(packets, 'utf-8', errors='replace')
 
         for packet in packets.splitlines():
             if not packet.strip():
@@ -829,7 +829,7 @@ class MetricsBucketAggregator(Aggregator):
     def create_empty_metrics(self, sample_time_by_context, expiry_timestamp, flush_timestamp, metrics):
         # Even if no data is submitted, Counters keep reporting "0" for expiry_seconds.  The other Metrics
         #  (Set, Gauge, Histogram) do not report if no data is submitted
-        for context, last_sample_time in sample_time_by_context.items():
+        for context, last_sample_time in list(sample_time_by_context.items()):
             if last_sample_time < expiry_timestamp:
                 log.debug("%s hasn't been submitted in %ss. Expiring." % (context, self.expiry_seconds))
                 self.last_sample_time_by_context.pop(context, None)
@@ -854,7 +854,7 @@ class MetricsBucketAggregator(Aggregator):
                 if bucket_start_timestamp < flush_cutoff_time:
                     not_sampled_in_this_bucket = self.last_sample_time_by_context.copy()
                     # We mutate this dictionary while iterating so don't use an iterator.
-                    for context, metric in metric_by_context.items():
+                    for context, metric in list(metric_by_context.items()):
                         if metric.last_sample_time < expiry_timestamp:
                             # This should never happen
                             log.warning("%s hasn't been submitted in %ss. Expiring." % (context, self.expiry_seconds))
@@ -978,7 +978,7 @@ class MetricsAggregator(Aggregator):
         # Flush points and remove expired metrics. We mutate this dictionary
         # while iterating so don't use an iterator.
         metrics = []
-        for context, metric in self.metrics.items():
+        for context, metric in list(self.metrics.items()):
             if metric.last_sample_time < expiry_timestamp:
                 log.debug("%s hasn't been submitted in %ss. Expiring." % (context, self.expiry_seconds))
                 del self.metrics[context]

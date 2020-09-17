@@ -67,7 +67,7 @@ class TestUtilizationFactory(object):
                  'interrupt', 'softirq'],
                 "aggregation", "cpu", plugin_instances=["cpu-average"],
                 missing=missing, increment_time=increment_time):
-            print m
+            print(m)
             self.utilization_factory.write(m)
         self.utilization_factory.read()
 

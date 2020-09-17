@@ -110,7 +110,7 @@ def combine_dims(dims):
     if len(dims) == 0:
         return ""
     ret = []
-    for dim_k, dim_v in dims.items():
+    for dim_k, dim_v in list(dims.items()):
         ret.append(filter_signalfx_dimension(dim_k) + "=" +
                    filter_signalfx_dimension(dim_v))
     return "[" + ",".join(ret) + "]"

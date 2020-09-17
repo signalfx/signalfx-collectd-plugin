@@ -70,7 +70,7 @@ class TestModuleSetup(object):
         self.collectd_engine.engine_read_metrics()
         metrics = self.collectd_engine.dispatched_values
 
-        print [s.__str__() for s in metrics]
+        print([s.__str__() for s in metrics])
         assert_equals(len(metrics), len(expected))
         for idx, exp in enumerate(expected):
             assert_equals(metrics[idx].type_instance, exp[0])

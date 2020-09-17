@@ -18,7 +18,7 @@ import sys
 import threading
 import time
 import zlib
-from urlparse import urlparse
+from urllib.parse import urlparse
 
 import psutil
 
@@ -29,7 +29,7 @@ PLUGIN_UPTIME = "sf.host-plugin_uptime"
 try:
     import urllib.request as urllib2
 except ImportError:
-    import urllib2
+    import urllib.request, urllib.error, urllib.parse
 
 try:
     import json
@@ -194,7 +194,7 @@ class Utilization(object):
             percent = 1.0 * used / total * 100
         if dims is not None:
             plugin_instance += '[{dims}]'.format(dims=','.join(['='.join(d)
-                                                 for d in dims.items()]))
+                                                 for d in list(dims.items())]))
         if percent < 0:
             log("percent <= 0 %s %s %s %s %s" %
                 (used, total, metric, plugin_instance, obj))
@@ -261,7 +261,7 @@ class DfUtilization(PluginInstanceUtilization):
         for t in sorted(self.metrics.keys()):
             # check if metric is too old
             if t > self.last_time:
-                for plugin_instance in self.metrics[t].keys():
+                for plugin_instance in list(self.metrics[t].keys()):
                     m = self.metrics[t][plugin_instance]
                     if len(m) == 3:
                         used = m["df_complex.used"][0]
@@ -280,7 +280,7 @@ class DfUtilization(PluginInstanceUtilization):
                         else:
                             m.skipped = True
             else:
-                debug("too old %s %s" % (t, self.metrics[t].keys()))
+                debug("too old %s %s" % (t, list(self.metrics[t].keys())))
                 self.metrics[t] = None
             if not self.metrics[t]:
                 del (self.metrics[t])
@@ -309,7 +309,7 @@ class MemoryUtilization(Utilization):
         """
         if self.size == 0:
             if len(self.metrics) >= self.wait_threshold:
-                self.size = max(map(len, self.metrics.values()))
+                self.size = max(list(map(len, list(self.metrics.values()))))
             else:
                 return
 
@@ -317,7 +317,7 @@ class MemoryUtilization(Utilization):
             if t > self.last_time:
                 m = self.metrics[t]
                 if len(m) == self.size:
-                    total = sum(c[0] for c in m.values())
+                    total = sum(c[0] for c in list(m.values()))
                     used = 0
                     if sys.platform == 'darwin':
                         used = m["memory.active"][0] + m["memory.wired"][0]
@@ -329,7 +329,7 @@ class MemoryUtilization(Utilization):
                 else:
                     debug("incomplete metric %s %s" % (t, self.metrics[t]))
             else:
-                debug("too old %s %s" % (t, self.metrics[t].keys()))
+                debug("too old %s %s" % (t, list(self.metrics[t].keys())))
                 self.metrics[t] = None
             del (self.metrics[t])
 
@@ -351,7 +351,7 @@ class CpuUtilizationCalculator():
 
         response = None
         self.last.update(metric)
-        total = sum(c[0] for c in self.last.values())
+        total = sum(c[0] for c in list(self.last.values()))
         idle = self.last.get("cpu.idle", [0])[0]
         used = total - idle
         if self.old_total != 0:
@@ -399,7 +399,7 @@ class CpuUtilizationPerCore(PluginInstanceUtilization):
                     # Iterate over all cpu's to check if all metrics are
                     # reported. Because we have to skip the whole metric
                     # containing information on both cores
-                    for core in self.metrics[t].keys():
+                    for core in list(self.metrics[t].keys()):
                         if len(self.metrics[t][core]) < min_expected_metrics:
                             skip = True
                     if skip:
@@ -413,9 +413,9 @@ class CpuUtilizationPerCore(PluginInstanceUtilization):
                     # If the metric is not skipped,
                     # then proceed with calculation
                     else:
-                        for core in self.metrics[t].keys():
+                        for core in list(self.metrics[t].keys()):
                             # Add core to self.cores if necessary
-                            if core not in self.cores.keys():
+                            if core not in list(self.cores.keys()):
                                 self.cores[core] = \
                                     CpuUtilizationCalculator(core)
 
@@ -433,7 +433,7 @@ class CpuUtilizationPerCore(PluginInstanceUtilization):
                                 )
                         del (self.metrics[t])
                 else:
-                    debug("too old %s %s" % (t, self.metrics[t].keys()))
+                    debug("too old %s %s" % (t, list(self.metrics[t].keys())))
                     del (self.metrics[t])
         else:
             self.metrics = {}
@@ -484,7 +484,7 @@ class CpuUtilization(Utilization):
                     else:
                         self.metrics[t].skipped = True
             else:
-                debug("too old %s %s" % (t, self.metrics[t].keys()))
+                debug("too old %s %s" % (t, list(self.metrics[t].keys())))
                 del (self.metrics[t])
 
 
@@ -524,8 +524,8 @@ class Total(PluginInstanceUtilization):
 
         if self.size == 0:
             if len(self.metrics) >= self.wait_threshold:
-                self.size = max(map(len, self.metrics.values()))
-                for t in self.metrics.keys():
+                self.size = max(list(map(len, list(self.metrics.values()))))
+                for t in list(self.metrics.keys()):
                     if len(self.metrics[t]) != self.size:
                         del (self.metrics[t])
                     else:
@@ -558,7 +558,7 @@ class Total(PluginInstanceUtilization):
                         self.size = len(m)
                     prev = copy.copy(self.previous)
                     current = {}
-                    for x, y in m.iteritems():
+                    for x, y in m.items():
                         current[x] = sum(y[self.total_type])
                     diff = {}
                     for k in current:
@@ -591,7 +591,7 @@ class Total(PluginInstanceUtilization):
                 else:
                     m.skipped = True
             else:
-                debug("too old %s %s" % (t, self.metrics[t].keys()))
+                debug("too old %s %s" % (t, list(self.metrics[t].keys())))
                 del (self.metrics[t])
 
 
@@ -683,7 +683,7 @@ class DfTotalUtilization(Total):
                 if delete:
                     del (self.metrics[t])
             else:
-                debug("too old %s %s" % (t, self.metrics[t].keys()))
+                debug("too old %s %s" % (t, list(self.metrics[t].keys())))
                 del (self.metrics[t])
 
 
@@ -1103,7 +1103,7 @@ def get_cpu_info(host_info={}):
             nb_units = 0
             for p in f.readlines():
                 if ':' in p:
-                    x, y = map(lambda x: x.strip(), p.split(':', 1))
+                    x, y = [x.strip() for x in p.split(':', 1)]
                     if x.startswith("physical id"):
                         if nb_cpu < int(y):
                             nb_cpu = int(y)
@@ -1149,8 +1149,8 @@ def get_aws_info(host_info={}):
     global AWS
     url = "http://169.254.169.254/latest/dynamic/instance-identity/document"
     try:
-        req = urllib2.Request(url)
-        response = urllib2.urlopen(req, timeout=0.2)
+        req = urllib.request.Request(url)
+        response = urllib.request.urlopen(req, timeout=0.2)
         identity = json.loads(response.read())
         want = {
             'availability_zone': 'availabilityZone',
@@ -1161,7 +1161,7 @@ def get_aws_info(host_info={}):
             'region': 'region',
             'architecture': 'architecture',
         }
-        for k, v in iter(want.items()):
+        for k, v in iter(list(want.items())):
             host_info["aws_" + k] = identity[v]
         AWS = True
         set_aws_url(host_info)
@@ -1441,7 +1441,7 @@ def map_diff(host_info, old_host_info):
     don't look for removals as they will likely be spurious
     """
     diff = {}
-    for k, v in iter(host_info.items()):
+    for k, v in iter(list(host_info.items())):
         if k not in old_host_info:
             diff[k] = v
         elif old_host_info[k] != v:
@@ -1464,9 +1464,9 @@ def put_val(plugin_instance, type_instance, val, plugin=PLUGIN_NAME, t=0.0,
                             values=[val[0]]).dispatch()
         else:
             h = platform.node()
-            print('PUTVAL %s/%s/%s-%s interval=%d N:%s' % (
+            print(('PUTVAL %s/%s/%s-%s interval=%d N:%s' % (
                 h, PLUGIN_NAME, val[1].lower(),
-                type_instance, INTERVAL, val[0]))
+                type_instance, INTERVAL, val[0])))
     except TypeError:
         global UTILIZATION
         if UTILIZATION:
@@ -1529,13 +1529,13 @@ def putnotif(property_name, message, plugin_name=PLUGIN_NAME,
         notif.dispatch()
     else:
         h = platform.node()
-        print('PUTNOTIF %s/%s-%s/%s-%s %s' % (h, plugin_name, property_name,
-                                              type, type_instance, message))
+        print(('PUTNOTIF %s/%s-%s/%s-%s %s' % (h, plugin_name, property_name,
+                                              type, type_instance, message)))
 
 
 def write_notifications(host_info):
     """emit any new notifications"""
-    for property_name, property_value in iter(host_info.items()):
+    for property_name, property_value in iter(list(host_info.items())):
         if len(property_value) > 255:
             receive_notifications(LargeNotif(property_value,
                                              HOST_TYPE_INSTANCE,
@@ -1654,8 +1654,8 @@ def receive_notifications(notif):
             headers["X-SF-TOKEN"] = API_TOKENS[i]
         start = time.time()
         try:
-            req = urllib2.Request(post_url, data, headers)
-            urllib2.urlopen(req, timeout=TIMEOUT)
+            req = urllib.request.Request(post_url, data, headers)
+            urllib.request.urlopen(req, timeout=TIMEOUT)
         except Exception:
             t, e = sys.exc_info()[:2]
             sys.stdout.write(str(e))

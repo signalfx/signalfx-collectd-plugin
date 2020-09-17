@@ -1,0 +1,17 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+pylint = "*"
+nose = "*"
+
+[packages]
+psutil = ">=3.3.0"
+signalfx = ">=1.0.16"
+simplejson = ">=3.8.1"
+six = ">=1.10.0"
+
+[requires]
+python_version = "3.8"

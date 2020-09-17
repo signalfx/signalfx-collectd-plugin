@@ -170,7 +170,7 @@ class Server(object):
 
                     if should_forward:
                         forward_udp_sock.send(message)
-            except select_error, se:
+            except select_error as se:
                 # Ignore interrupted system calls from sigterm.
                 errno = se[0]
                 if errno != 4:
