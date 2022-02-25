@@ -1,0 +1,26 @@
+name: Markdown Lint
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  markdown-lint:
+    name: markdown-lint
+    runs-on: ubuntu-latest
+    container:
+      image: ruby:2.6
+    steps:
+      - name: Check out the codebase
+        uses: actions/checkout@v2
+
+      - name: Install mdl
+        run: gem install mdl -v 0.5.0
+
+      - name: Run mdl
+        run: |
+          mdl README.md
+          mdl CHANGELOG.md
